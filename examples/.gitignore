@@ -1,0 +1,8 @@
+# terraform.tfvars
+**/terraform.tfvars
+
+# terraform provider configuration
+**/terraform_provider.tf
+
+# terraform lock file
+**/.terraform.lock.hcl
