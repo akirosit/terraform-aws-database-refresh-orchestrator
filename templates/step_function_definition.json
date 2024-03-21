@@ -1,0 +1,671 @@
+{
+  "Comment": "Database Refresh Orchestrator for Amazon RDS and Amazon Aurora",
+  "StartAt": "RESTORE",
+  "States": {
+    "RESTORE": {
+      "Comment": "Restore steps",
+      "Type": "Pass",
+      "Next": "perform-restore"
+    },
+    "perform-restore": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:restoreDBClusterToPointInTime",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "Parameters": {
+        "SourceDBClusterIdentifier.$": "$.SourceDBClusterIdentifier",
+        "DbClusterIdentifier.$": "$.TmpDbClusterIdentifier",
+        "RestoreType": "full-copy",
+        "UseLatestRestorableTime": true,
+        "Port": 3306,
+        "DbSubnetGroupName.$": "$.DbSubnetGroupName",
+        "EnableIAMDatabaseAuthentication": "False",
+        "KmsKeyId.$": "$.KmsKeyId",
+        "EnableCloudwatchLogsExports": [
+          "audit",
+          "error",
+          "general",
+          "slowquery"
+        ],
+        "CopyTagsToSnapshot": true,
+        "DbClusterParameterGroupName.$": "$.DbClusterParameterGroupName",
+        "DeletionProtection": false,
+        "VpcSecurityGroupIds.$": "$.VpcSecurityGroupIds",
+        "Tags": [
+          {
+            "Key": "Application",
+            "Value.$": "$.TagApplication"
+          },
+          {
+            "Key": "Environment",
+            "Value.$": "$.TagEnvironment"
+          },
+          {
+            "Key": "refresh",
+            "Value": "true"
+          },
+          {
+            "Key": "refresh-cluster",
+            "Value.$": "$.SourceDBClusterIdentifier"
+          }
+        ]
+      },
+      "ResultPath": "$.restore-result",
+      "Next": "wait-restore",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "ResultPath": "$.restore.errormsg",
+          "Next": "update-dynamodb-failure"
+        }
+      ]
+    },
+    "wait-restore": {
+      "Type": "Wait",
+      "Seconds": 10,
+      "Next": "check-status-restore"
+    },
+    "check-status-restore": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:describeDBClusters",
+      "Parameters": {
+        "DbClusterIdentifier.$": "$.TmpDbClusterIdentifier"
+      },
+      "Next": "outcome-restore",
+      "ResultPath": "$.check-status-restore-result"
+    },
+    "outcome-restore": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.check-status-restore-result.DbClusters[0].Status",
+          "StringEquals": "available",
+          "Next": "create-instance"
+        }
+      ],
+      "Default": "wait-restore"
+    },
+    "create-instance": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:createDBInstance",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "Parameters": {
+        "DbClusterIdentifier.$": "$.TmpDbClusterIdentifier",
+        "DbInstanceIdentifier.$": "$.TmpDbInstanceIdentifier",
+        "DbInstanceClass.$": "$.DbInstanceClass",
+        "Engine": "aurora-mysql",
+        "DbSubnetGroupName.$": "$.DbSubnetGroupName",
+        "DbParameterGroupName.$": "$.DbParameterGroupName",
+        "AutoMinorVersionUpgrade": false,
+        "PubliclyAccessible": false,
+        "CopyTagsToSnapshot": true,
+        "Tags": [
+          {
+            "Key": "Application",
+            "Value.$": "$.TagApplication"
+          },
+          {
+            "Key": "Environment",
+            "Value.$": "$.TagEnvironment"
+          },
+          {
+            "Key": "refresh",
+            "Value": "true"
+          },
+          {
+            "Key": "refresh-cluster",
+            "Value.$": "$.SourceDBClusterIdentifier"
+          }
+        ]
+      },
+      "ResultPath": "$.createinstance-result",
+      "Next": "wait-create-instance",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "ResultPath": "$.createinstance.errormsg",
+          "Next": "update-dynamodb-failure"
+        }
+      ]
+    },
+    "wait-create-instance": {
+      "Type": "Wait",
+      "Seconds": 10,
+      "Next": "check-status-create-instance"
+    },
+    "check-status-create-instance": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:describeDBInstances",
+      "Parameters": {
+        "DbInstanceIdentifier.$": "$.TmpDbInstanceIdentifier"
+      },
+      "Next": "outcome-create-instance",
+      "ResultPath": "$.check-status-create-instance-result"
+    },
+    "outcome-create-instance": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.check-status-create-instance-result.DbInstances[0].DbInstanceStatus",
+          "StringEquals": "available",
+          "Next": "POST-RESTORE"
+        }
+      ],
+      "Default": "wait-create-instance"
+    },
+    "POST-RESTORE": {
+      "Comment": "Post-restore steps",
+      "Type": "Pass",
+      "Next": "get-old-database-arn"
+    },
+    "get-old-database-arn": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:describeDBInstances",
+      "Parameters": {
+        "DbInstanceIdentifier.$": "$.DbInstanceIdentifier"
+      },
+      "Next": "check-old-database-tags",
+      "ResultSelector": {
+        "ResourceName.$": "$.DbInstances[0].DbInstanceArn"
+      },
+      "ResultPath": "$.get-old-database-arn-result",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "ResultPath": "$.get-old-database-arn.errormsg",
+          "Next": "update-dynamodb-failure"
+        }
+      ]
+    },
+    "check-old-database-tags": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:listTagsForResource",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "Parameters": {
+        "ResourceName.$": "$.get-old-database-arn-result.ResourceName"
+      },
+      "ResultSelector": {
+        "TagRefresh.$": "States.ArrayGetItem($.TagList[?(@.Key=='refresh')].Value,0)"
+      },
+      "ResultPath": "$.check-old-database-tags-result",
+      "Next": "outcome-check-old-database-tags",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "ResultPath": "$.check-old-database-tags.errormsg",
+          "Next": "update-dynamodb-failure"
+        }
+      ]
+    },
+    "outcome-check-old-database-tags": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.check-old-database-tags-result.TagRefresh",
+          "StringEquals": "true",
+          "Next": "delete-old-database"
+        }
+      ],
+      "Default": "update-dynamodb-failure"
+    },
+    "delete-old-database": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:deleteDBInstance",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "Parameters": {
+        "DbInstanceIdentifier.$": "$.DbInstanceIdentifier",
+        "SkipFinalSnapshot": true,
+        "DeleteAutomatedBackups": false
+      },
+      "ResultPath": "$.delete-old-database-result",
+      "Next": "wait-delete-old-database",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "ResultPath": "$.delete.errormsg",
+          "Next": "update-dynamodb-failure"
+        }
+      ]
+    },
+    "wait-delete-old-database": {
+      "Type": "Wait",
+      "Seconds": 10,
+      "Next": "check-status-delete-old-database"
+    },
+    "check-status-delete-old-database": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:describeDBInstances",
+      "Parameters": {
+        "DbInstanceIdentifier.$": "$.DbInstanceIdentifier"
+      },
+      "Next": "wait-delete-old-database",
+      "ResultPath": "$.check-status-delete-old-database-result",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "ResultPath": "$.check-status-delete-old-database.errormsg",
+          "Next": "get-old-cluster-arn"
+        }
+      ]
+    },
+    "get-old-cluster-arn": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:describeDBClusters",
+      "Next": "check-old-cluster-tags",
+      "Parameters": {
+        "DbClusterIdentifier.$": "$.DbClusterIdentifier"
+      },
+      "ResultSelector": {
+        "ResourceName.$": "$.DbClusters[0].DbClusterArn"
+      },
+      "ResultPath": "$.get-old-cluster-arn-result",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "ResultPath": "$.get-old-cluster-arn.errormsg",
+          "Next": "update-dynamodb-failure"
+        }
+      ]
+    },
+    "check-old-cluster-tags": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:listTagsForResource",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "Parameters": {
+        "ResourceName.$": "$.get-old-cluster-arn-result.ResourceName"
+      },
+      "ResultSelector": {
+        "TagRefresh.$": "States.ArrayGetItem($.TagList[?(@.Key=='refresh')].Value,0)"
+      },
+      "ResultPath": "$.check-old-cluster-tags-result",
+      "Next": "outcome-check-old-cluster-tags",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "ResultPath": "$.check-old-cluster-tags.errormsg",
+          "Next": "update-dynamodb-failure"
+        }
+      ]
+    },
+    "outcome-check-old-cluster-tags": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.check-old-cluster-tags-result.TagRefresh",
+          "StringEquals": "true",
+          "Next": "delete-old-cluster"
+        }
+      ],
+      "Default": "update-dynamodb-failure"
+    },
+    "delete-old-cluster": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:deleteDBCluster",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "Parameters": {
+        "DbClusterIdentifier.$": "$.DbClusterIdentifier",
+        "SkipFinalSnapshot": true
+      },
+      "ResultPath": "$.delete-old-cluster-result",
+      "Next": "wait-delete-old-cluster",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "ResultPath": "$.delete-old-cluster.errormsg",
+          "Next": "update-dynamodb-failure"
+        }
+      ]
+    },
+    "wait-delete-old-cluster": {
+      "Type": "Wait",
+      "Seconds": 10,
+      "Next": "check-status-delete-old-cluster"
+    },
+    "check-status-delete-old-cluster": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:describeDBClusters",
+      "Next": "wait-delete-old-cluster",
+      "Parameters": {
+        "DbClusterIdentifier.$": "$.DbClusterIdentifier"
+      },
+      "ResultPath": "$.check-status-delete-old-cluster-result",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "ResultPath": "$.check-status-delete-old-cluster.errormsg",
+          "Next": "rename-cluster-and-enable-master-user-secret"
+        }
+      ]
+    },
+    "rename-cluster-and-enable-master-user-secret": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:modifyDBCluster",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "Parameters": {
+        "DbClusterIdentifier.$": "$.TmpDbClusterIdentifier",
+        "NewDBClusterIdentifier.$": "$.DbClusterIdentifier",
+        "ManageMasterUserPassword": true,
+        "MasterUserSecretKmsKeyId.$": "$.MasterUserSecretKmsKeyId",
+        "ApplyImmediately": true
+      },
+      "ResultPath": "$.rename-cluster-result",
+      "Next": "wait-rename-cluster",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "An error occurred (InvalidDBClusterStateFault) when calling the ModifyDBCluster operation: DB cluster is not available for modification with status backing-up"
+          ],
+          "IntervalSeconds": 60,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "ResultPath": "$.renamecluster.errormsg",
+          "Next": "update-dynamodb-failure"
+        }
+      ]
+    },
+    "wait-rename-cluster": {
+      "Type": "Wait",
+      "Seconds": 10,
+      "Next": "check-status-rename-cluster"
+    },
+    "check-status-rename-cluster": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:describeDBClusters",
+      "Next": "outcome-rename-cluster",
+      "Parameters": {
+        "DbClusterIdentifier.$": "$.DbClusterIdentifier"
+      },
+      "ResultPath": "$.check-status-rename-cluster-result",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "ResultPath": "$.check-status-rename-cluster-errormsg",
+          "Next": "wait-rename-cluster"
+        }
+      ]
+    },
+    "outcome-rename-cluster": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.check-status-rename-cluster-result.DbClusters[0].Status",
+          "StringEquals": "available",
+          "Next": "rename-database"
+        }
+      ],
+      "Default": "wait-rename-cluster"
+    },
+    "rename-database": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:modifyDBInstance",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "Parameters": {
+        "DbInstanceIdentifier.$": "$.TmpDbInstanceIdentifier",
+        "NewDBInstanceIdentifier.$": "$.DbInstanceIdentifier",
+        "ApplyImmediately": true
+      },
+      "ResultPath": "$.rename-result",
+      "Next": "wait-rename",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "ResultPath": "$.rename.errormsg",
+          "Next": "update-dynamodb-failure"
+        }
+      ]
+    },
+    "wait-rename": {
+      "Type": "Wait",
+      "Seconds": 10,
+      "Next": "check-status-rename"
+    },
+    "check-status-rename": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:describeDBInstances",
+      "Next": "outcome-rename",
+      "Parameters": {
+        "DbInstanceIdentifier.$": "$.DbInstanceIdentifier"
+      },
+      "ResultPath": "$.check-status-rename-result",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "ResultPath": "$.check-status-rename-errormsg",
+          "Next": "wait-rename"
+        }
+      ]
+    },
+    "outcome-rename": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.check-status-rename-result.DbInstances[0].DbInstanceStatus",
+          "StringEquals": "available",
+          "Next": "run-sql-scripts"
+        }
+      ],
+      "Default": "wait-rename"
+    },
+    "run-sql-scripts": {
+      "Type": "Map",
+      "ItemReader": {
+        "Resource": "arn:aws:states:::s3:listObjectsV2",
+        "Parameters": {
+          "Bucket.$": "$.RefreshBucket",
+          "Prefix.$": "$.RefreshBucketPrefix"
+        }
+      },
+      "ItemSelector": {
+        "cluster.$": "$.DbClusterIdentifier",
+        "secretname.$": "$.rename-cluster-result.DbCluster.MasterUserSecret.SecretArn",
+        "bucketname.$": "$.RefreshBucket",
+        "key.$": "$$.Map.Item.Value.Key"
+      },
+      "MaxConcurrency": 1000,
+      "ItemProcessor": {
+        "ProcessorConfig": {
+          "Mode": "DISTRIBUTED",
+          "ExecutionType": "STANDARD"
+        },
+        "StartAt": "lambda-sql-script",
+        "States": {
+          "lambda-sql-script": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "OutputPath": "$.Payload",
+            "Parameters": {
+              "FunctionName": "${awssoldb-RunScriptsMySQL}:$LATEST",
+              "Payload": {
+                "cluster.$": "$.DbClusterIdentifier",
+                "dbname.$": "$.DbName",
+                "secretname.$": "$.rename-cluster-result.DbCluster.MasterUserSecret.SecretArn",
+                "bucketname.$": "$.RefreshBucket",
+                "keys.$": "$$.Map.Item.Value"
+              }
+            },
+            "Retry": [
+              {
+                "ErrorEquals": [
+                  "Lambda.ServiceException",
+                  "Lambda.AWSLambdaException",
+                  "Lambda.SdkClientException",
+                  "Lambda.TooManyRequestsException"
+                ],
+                "IntervalSeconds": 1,
+                "MaxAttempts": 3,
+                "BackoffRate": 2
+              }
+            ],
+            "End": true
+          }
+        }
+      },
+      "Label": "S3objectkeys",
+      "Next": "update-dynamodb",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "ResultPath": "$.run-sql-scripts-errormsg",
+          "Next": "update-dynamodb-failure"
+        }
+      ]
+    },
+    "update-dynamodb": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:putItem",
+      "Parameters": {
+        "TableName.$": "$.DynamoDBTableName",
+        "Item": {
+          "appname": {
+            "S.$": "$.TagApplication"
+          },
+          "environment": {
+            "S.$": "$.TagEnvironment"
+          },
+          "dbinstance": {
+            "S.$": "$.DbClusterIdentifier"
+          },
+          "source": {
+            "S.$": "$.SourceDBClusterIdentifier"
+          },
+          "restoretype": {
+            "S": "fastcloning"
+          },
+          "snapshot": {
+            "S": "null"
+          },
+          "status": {
+            "S": "completed"
+          },
+          "restoredate": {
+            "S": "$$.State.StartTime"
+          },
+          "restoretime": {
+            "S": "$$.State.EnteredTime"
+          }
+        }
+      },
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "ResultPath": "$.update-dynamodb-result",
+      "Next": "send-msg"
+    },
+    "send-msg": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn.$": "$.SNSTopicArn",
+        "Subject.$": "$.SNSSubject",
+        "Message.$": "$.SNSMessage"
+      },
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "ResultPath": "$.sendmsg-result",
+      "Next": "RESTORE-COMPLETE"
+    },
+    "RESTORE-COMPLETE": {
+      "Type": "Pass",
+      "End": true
+    },
+    "update-dynamodb-failure": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:putItem",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "Parameters": {
+        "TableName.$": "$.DynamoDBTableName",
+        "Item": {
+          "appname": {
+            "S.$": "$.TagApplication"
+          },
+          "environment": {
+            "S.$": "$.TagEnvironment"
+          },
+          "dbinstance": {
+            "S.$": "$.DbClusterIdentifier"
+          },
+          "source": {
+            "S.$": "$.SourceDBClusterIdentifier"
+          },
+          "restoretype": {
+            "S": "fastcloning"
+          },
+          "snapshot": {
+            "S": "null"
+          },
+          "status": {
+            "S": "failed"
+          },
+          "restoredate": {
+            "S": "$$.State.StartTime"
+          },
+          "restoretime": {
+            "S": "$$.State.EnteredTime"
+          }
+        }
+      },
+      "ResultPath": "$.update-dynamodb-failure-result",
+      "Next": "send-msg-failure"
+    },
+    "send-msg-failure": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "Parameters": {
+        "TopicArn.$": "$.SNSTopicArn",
+        "Subject.$": "$.SNSSubjectFailure",
+        "Message.$": "$.SNSMessageFailure"
+      },
+      "ResultPath": "$.sendmsg-result",
+      "Next": "RESTORE-FAILED"
+    },
+    "RESTORE-FAILED": {
+      "Type": "Fail",
+      "Error": "Restore failed",
+      "Cause": "One of the states failed. Please check the logs"
+    }
+  }
+}

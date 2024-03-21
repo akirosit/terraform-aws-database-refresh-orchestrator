@@ -1,0 +1,693 @@
+{
+    "Comment": "Database Refresh Orchestrator for Amazon RDS and Amazon Aurora",
+    "StartAt": "PRE-RESTORE",
+    "States": {
+      "PRE-RESTORE": {
+        "Comment": "Pre-restore steps",
+        "Type": "Pass",
+        "Next": "delete-replicas"
+      },
+      "delete-replicas": {
+      "Type": "Task",
+      "Resource": "${awssoldb-DeleteReplicas}",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "InputPath": "$.deletereplicas",
+      "ResultPath": "$.deletereplicas.result",
+      "Next": "wait-delete-replicas",
+      "Catch": [ {
+        "ErrorEquals": [ "States.TaskFailed" ],
+        "ResultPath": "$.deletereplicas.errormsg",
+        "Next": "update-dynamodb-failure"
+        }
+      ]
+      },
+      "wait-delete-replicas": {
+        "Type": "Wait",
+        "SecondsPath": "$.deletereplicas.wait_time",
+        "Next": "check-status-deletereplicas"
+      },
+      "check-status-deletereplicas": {
+        "Type": "Task",
+        "Resource": "${awssoldb-CheckStatus}",
+        "Next": "outcome-delete-replicas",
+        "InputPath": "$.deletereplicas.check",
+        "ResultPath": "$.deletereplicas.check.result"
+      },
+      "outcome-delete-replicas": {
+        "Type": "Choice",
+        "Choices": [
+          {
+            "Variable": "$.deletereplicas.check.result.body",
+            "StringEquals": "SUCCEEDED",
+            "Next": "stop-old-database"
+          }
+        ],
+        "Default": "wait-delete-replicas"
+      },
+      "stop-old-database": {
+      "Type": "Task",
+      "Resource": "${awssoldb-StopOldDatabase}",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "InputPath": "$.stopdb",
+      "ResultPath": "$.stopdb.result",
+      "Next": "wait-shutdown",
+      "Catch": [ {
+        "ErrorEquals": [ "States.TaskFailed" ],
+        "ResultPath": "$.stopdb.errormsg",
+        "Next": "update-dynamodb-failure"
+        }
+      ]
+      },
+      "wait-shutdown": {
+        "Type": "Wait",
+        "SecondsPath": "$.stopdb.wait_time",
+        "Next": "check-status-shutdown"
+      },
+      "check-status-shutdown": {
+        "Type": "Task",
+        "Resource": "${awssoldb-CheckStatus}",
+        "Next": "outcome-shutdown",
+        "InputPath": "$.stopdb.check",
+        "ResultPath": "$.stopdb.check.result"
+      },
+      "outcome-shutdown": {
+        "Type": "Choice",
+        "Choices": [
+          {
+            "Variable": "$.stopdb.check.result.body",
+            "StringEquals": "SUCCEEDED",
+            "Next": "delete-restore-database"
+          }
+        ],
+        "Default": "wait-shutdown"
+      },
+      "delete-restore-database": {
+      "Type": "Task",
+      "Resource": "${awssoldb-DeleteOldDatabase}",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "InputPath": "$.delete-restore",
+      "ResultPath": "$.delete-restore.result",
+      "Next": "wait-delete-restore",
+      "Catch": [
+        {
+          "ErrorEquals": [ "DBInstanceNotFoundFault" ],
+          "ResultPath": "$.delete-restore.errormsg",
+          "Next": "delete-restore-cluster"
+        },
+        {
+          "ErrorEquals": [ "States.TaskFailed" ],
+          "ResultPath": "$.delete-restore.errormsg",
+          "Next": "update-dynamodb-failure"
+        }
+      ]
+      },
+      "wait-delete-restore": {
+        "Type": "Wait",
+        "SecondsPath": "$.delete-restore.wait_time",
+        "Next": "check-status-delete-restore"
+      },
+      "check-status-delete-restore": {
+        "Type": "Task",
+        "Resource": "${awssoldb-CheckStatus}",
+        "Next": "outcome-delete-restore",
+        "InputPath": "$.delete-restore.check",
+        "ResultPath": "$.delete-restore.check.result"
+      },
+      "outcome-delete-restore": {
+        "Type": "Choice",
+        "Choices": [
+          {
+            "Variable": "$.delete-restore.check.result.body",
+            "StringEquals": "SUCCEEDED",
+            "Next": "delete-restore-cluster"
+          }
+        ],
+        "Default": "wait-delete-restore"
+      },
+      "delete-restore-cluster": {
+      "Type": "Task",
+      "Resource": "${awssoldb-DeleteOldCluster}",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "InputPath": "$.deletecluster-restore",
+      "ResultPath": "$.deletecluster-restore.result",
+      "Next": "wait-delete-cluster-restore",
+      "Catch": [
+        {
+          "ErrorEquals": [ "DBClusterNotFoundFault" ],
+          "ResultPath": "$.deletecluster-restore.errormsg",
+          "Next": "RESTORE"
+        },
+        {
+          "ErrorEquals": [ "States.TaskFailed" ],
+          "ResultPath": "$.deletecluster-restore.errormsg",
+          "Next": "update-dynamodb-failure"
+        }
+      ]
+      },
+      "wait-delete-cluster-restore": {
+        "Type": "Wait",
+        "SecondsPath": "$.deletecluster-restore.wait_time",
+        "Next": "check-status-delete-cluster-restore"
+      },
+      "check-status-delete-cluster-restore": {
+        "Type": "Task",
+        "Resource": "${awssoldb-CheckStatus}",
+        "Next": "outcome-delete-cluster-restore",
+        "InputPath": "$.deletecluster-restore.check",
+        "ResultPath": "$.deletecluster-restore.check.result"
+      },
+      "outcome-delete-cluster-restore": {
+        "Type": "Choice",
+        "Choices": [
+          {
+            "Variable": "$.deletecluster-restore.check.result.body",
+            "StringEquals": "SUCCEEDED",
+            "Next": "RESTORE"
+          }
+        ],
+        "Default": "wait-delete-cluster-restore"
+      },
+      "RESTORE": {
+        "Comment": "Restore steps",
+        "Type": "Pass",
+        "Next": "perform-restore"
+      },
+      "perform-restore": {
+      "Type": "Task",
+      "Resource": "${awssoldb-Restore}",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "InputPath": "$.restore",
+      "ResultPath": "$.restore.result",
+      "Next": "wait-restore",
+      "Catch": [ {
+        "ErrorEquals": [ "States.TaskFailed" ],
+        "ResultPath": "$.restore.errormsg",
+        "Next": "update-dynamodb-failure"
+        }
+      ]
+      },
+      "wait-restore": {
+        "Type": "Wait",
+        "SecondsPath": "$.restore.wait_time",
+        "Next": "check-status-restore"
+      },
+      "check-status-restore": {
+        "Type": "Task",
+        "Resource": "${awssoldb-CheckStatus}",
+        "Next": "outcome-restore",
+        "InputPath": "$.restore.check",
+        "ResultPath": "$.restore.check.result"
+      },
+      "outcome-restore": {
+        "Type": "Choice",
+        "Choices": [
+          {
+            "Variable": "$.restore.check.result.body",
+            "StringEquals": "SUCCEEDED",
+            "Next": "create-instance"
+          }
+        ],
+        "Default": "wait-restore"
+      },
+      "create-instance": {
+      "Type": "Task",
+      "Resource": "${awssoldb-CreateInstance}",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "InputPath": "$.createinstance",
+      "ResultPath": "$.createinstance.result",
+      "Next": "wait-create-instance",
+      "Catch": [ {
+        "ErrorEquals": [ "States.TaskFailed" ],
+        "ResultPath": "$.createinstance.errormsg",
+        "Next": "update-dynamodb-failure"
+        }
+      ]
+      },
+      "wait-create-instance": {
+        "Type": "Wait",
+        "SecondsPath": "$.createinstance.wait_time",
+        "Next": "check-status-create-instance"
+      },
+      "check-status-create-instance": {
+        "Type": "Task",
+        "Resource": "${awssoldb-CheckStatus}",
+        "Next": "outcome-create-instance",
+        "InputPath": "$.createinstance.check",
+        "ResultPath": "$.createinstance.check.result"
+      },
+      "outcome-create-instance": {
+        "Type": "Choice",
+        "Choices": [
+          {
+            "Variable": "$.createinstance.check.result.body",
+            "StringEquals": "SUCCEEDED",
+            "Next": "POST-RESTORE"
+          }
+        ],
+        "Default": "wait-create-instance"
+      },
+      "POST-RESTORE": {
+        "Comment": "Post-restore steps",
+        "Type": "Pass",
+        "Next": "delete-old-database"
+      },
+      "delete-old-database": {
+      "Type": "Task",
+      "Resource": "${awssoldb-DeleteOldDatabase}",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "InputPath": "$.delete",
+      "ResultPath": "$.delete.result",
+      "Next": "wait-delete",
+      "Catch": [ {
+        "ErrorEquals": [ "States.TaskFailed" ],
+        "ResultPath": "$.delete.errormsg",
+        "Next": "update-dynamodb-failure"
+        }
+      ]
+      },
+      "wait-delete": {
+        "Type": "Wait",
+        "SecondsPath": "$.delete.wait_time",
+        "Next": "check-status-delete"
+      },
+      "check-status-delete": {
+        "Type": "Task",
+        "Resource": "${awssoldb-CheckStatus}",
+        "Next": "outcome-delete",
+        "InputPath": "$.delete.check",
+        "ResultPath": "$.delete.check.result"
+      },
+      "outcome-delete": {
+        "Type": "Choice",
+        "Choices": [
+          {
+            "Variable": "$.delete.check.result.body",
+            "StringEquals": "SUCCEEDED",
+            "Next": "delete-old-cluster"
+          }
+        ],
+        "Default": "wait-delete"
+      },
+      "delete-old-cluster": {
+      "Type": "Task",
+      "Resource": "${awssoldb-DeleteOldCluster}",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "InputPath": "$.deletecluster",
+      "ResultPath": "$.deletecluster.result",
+      "Next": "wait-delete-cluster",
+      "Catch": [ {
+        "ErrorEquals": [ "States.TaskFailed" ],
+        "ResultPath": "$.deletecluster.errormsg",
+        "Next": "update-dynamodb-failure"
+        }
+      ]
+      },
+      "wait-delete-cluster": {
+        "Type": "Wait",
+        "SecondsPath": "$.deletecluster.wait_time",
+        "Next": "check-status-delete-cluster"
+      },
+      "check-status-delete-cluster": {
+        "Type": "Task",
+        "Resource": "${awssoldb-CheckStatus}",
+        "Next": "outcome-delete-cluster",
+        "InputPath": "$.deletecluster.check",
+        "ResultPath": "$.deletecluster.check.result"
+      },
+      "outcome-delete-cluster": {
+        "Type": "Choice",
+        "Choices": [
+          {
+            "Variable": "$.deletecluster.check.result.body",
+            "StringEquals": "SUCCEEDED",
+            "Next": "rename-cluster"
+          }
+        ],
+        "Default": "wait-delete-cluster"
+      },
+      "rename-cluster": {
+      "Type": "Task",
+      "Resource": "${awssoldb-RenameCluster}",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "InputPath": "$.renamecluster",
+      "ResultPath": "$.renamecluster.result",
+      "Next": "wait-rename-cluster",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "An error occurred (InvalidDBClusterStateFault) when calling the ModifyDBCluster operation: DB cluster is not available for modification with status backing-up"
+          ],
+          "IntervalSeconds": 60,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [ {
+        "ErrorEquals": [ "States.TaskFailed" ],
+        "ResultPath": "$.renamecluster.errormsg",
+        "Next": "update-dynamodb-failure"
+        }
+      ]
+      },
+      "wait-rename-cluster": {
+        "Type": "Wait",
+        "SecondsPath": "$.renamecluster.wait_time",
+        "Next": "check-status-rename-cluster"
+      },
+      "check-status-rename-cluster": {
+        "Type": "Task",
+        "Resource": "${awssoldb-CheckStatus}",
+        "Next": "outcome-rename-cluster",
+        "InputPath": "$.renamecluster.check",
+        "ResultPath": "$.renamecluster.check.result"
+      },
+      "outcome-rename-cluster": {
+        "Type": "Choice",
+        "Choices": [
+          {
+            "Variable": "$.renamecluster.check.result.body",
+            "StringEquals": "SUCCEEDED",
+            "Next": "rename-database"
+          }
+        ],
+        "Default": "wait-rename-cluster"
+      },    
+      "rename-database": {
+      "Type": "Task",
+      "Resource": "${awssoldb-RenameDatabase}",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "InputPath": "$.rename",
+      "ResultPath": "$.rename.result",
+      "Next": "wait-rename",
+      "Catch": [ {
+        "ErrorEquals": [ "States.TaskFailed" ],
+        "ResultPath": "$.rename.errormsg",
+        "Next": "update-dynamodb-failure"
+        }
+      ]
+      },
+      "wait-rename": {
+        "Type": "Wait",
+        "SecondsPath": "$.rename.wait_time",
+        "Next": "check-status-rename"
+      },
+      "check-status-rename": {
+        "Type": "Task",
+        "Resource": "${awssoldb-CheckStatus}",
+        "Next": "outcome-rename",
+        "InputPath": "$.rename.check",
+        "ResultPath": "$.rename.check.result"
+      },
+      "outcome-rename": {
+        "Type": "Choice",
+        "Choices": [
+          {
+            "Variable": "$.rename.check.result.body",
+            "StringEquals": "SUCCEEDED",
+            "Next": "fix-tags"
+          }
+        ],
+        "Default": "wait-rename"
+      },
+      "fix-tags": {
+      "Type": "Task",
+      "Resource": "${awssoldb-FixTags}",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "InputPath": "$.fixtags",
+      "ResultPath": "$.fixtags.result",
+      "Next": "wait-tags",
+      "Catch": [ {
+        "ErrorEquals": [ "States.TaskFailed" ],
+        "ResultPath": "$.fixtags.errormsg",
+        "Next": "update-dynamodb-failure"
+        }
+      ]
+      },
+      "wait-tags": {
+        "Type": "Wait",
+        "SecondsPath": "$.fixtags.wait_time",
+        "Next": "check-status-tags"
+      },
+      "check-status-tags": {
+        "Type": "Task",
+        "Resource": "${awssoldb-CheckStatus}",
+        "Next": "outcome-tags",
+        "InputPath": "$.fixtags.check",
+        "ResultPath": "$.fixtags.check.result"
+      },
+      "outcome-tags": {
+        "Type": "Choice",
+        "Choices": [
+          {
+            "Variable": "$.fixtags.check.result.body",
+            "StringEquals": "SUCCEEDED",
+            "Next": "create-read-replicas"
+          }
+        ],
+        "Default": "wait-tags"
+      },
+      "create-read-replicas": {
+      "Type": "Task",
+      "Resource": "${awssoldb-CreateReadReplicas}",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "InputPath": "$.createreplicas",
+      "ResultPath": "$.createreplicas.result",
+      "Next": "wait-replicas",
+      "Retry": [ {
+        "ErrorEquals": [ "An error occurred (InvalidDBInstanceState) when calling the CreateDBInstanceReadReplica operation: DB instance is not in the available state" ],
+        "IntervalSeconds": 60,
+        "MaxAttempts": 3,
+        "BackoffRate": 2
+        }
+      ],
+      "Catch": [ {
+        "ErrorEquals": [ "States.TaskFailed" ],
+        "ResultPath": "$.createreplicas.errormsg",
+        "Next": "update-dynamodb-failure"
+        }
+      ]
+      },
+      "wait-replicas": {
+        "Type": "Wait",
+        "SecondsPath": "$.createreplicas.wait_time",
+        "Next": "check-status-replicas"
+      },
+      "check-status-replicas": {
+        "Type": "Task",
+        "Resource": "${awssoldb-CheckStatus}",
+        "Next": "outcome-replicas",
+        "InputPath": "$.createreplicas.check",
+        "ResultPath": "$.createreplicas.check.result"
+      },
+      "outcome-replicas": {
+        "Type": "Choice",
+        "Choices": [
+          {
+            "Variable": "$.createreplicas.check.result.body",
+            "StringEquals": "SUCCEEDED",
+            "Next": "change-master-pwd"
+          }
+        ],
+        "Default": "wait-replicas"
+      },
+      "change-master-pwd": {
+      "Type": "Task",
+      "Resource": "${awssoldb-ChangeMasterPwd}",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "InputPath": "$.changemasterpwd",
+      "ResultPath": "$.changemasterpwd.result",
+      "Next": "wait-pwd",
+      "Retry": [ {
+        "ErrorEquals": [ "An error occurred (InvalidDBInstanceState) when calling the ModifyDBInstance operation: Database instance is not in available state." ],
+        "IntervalSeconds": 60,
+        "MaxAttempts": 3,
+        "BackoffRate": 2
+       }
+      ],
+      "Catch": [ {
+        "ErrorEquals": [ "States.ALL" ],
+        "ResultPath": "$.changemasterpwd.errormsg",
+        "Next": "update-dynamodb-failure"
+        }
+      ]
+      },
+      "wait-pwd": {
+        "Type": "Wait",
+        "SecondsPath": "$.changemasterpwd.wait_time",
+        "Next": "check-pwd"
+      },
+      "check-pwd": {
+        "Type": "Task",
+        "Resource": "${awssoldb-CheckStatus}",
+        "Next": "outcome-pwd",
+        "InputPath": "$.changemasterpwd.check",
+        "ResultPath": "$.changemasterpwd.check.result"
+      },
+      "outcome-pwd": {
+        "Type": "Choice",
+        "Choices": [
+          {
+            "Variable": "$.changemasterpwd.check.result.body",
+            "StringEquals": "SUCCEEDED",
+            "Next": "rotate-master-pwd"
+          }
+        ],
+        "Default": "wait-pwd"
+      },
+      "rotate-master-pwd": {
+      "Type": "Task",
+      "Resource": "${awssoldb-RotateMasterPwd}",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "InputPath": "$.rotatemasterpwd",
+      "ResultPath": "$.rotatemasterpwd.result",
+      "Next": "wait-rotate-pwd",
+      "Catch": [ {
+        "ErrorEquals": [ "States.TaskFailed" ],
+        "ResultPath": "$.rotatemasterpwd.errormsg",
+        "Next": "update-dynamodb-failure"
+        }
+      ]
+      },
+      "wait-rotate-pwd": {
+        "Type": "Wait",
+        "SecondsPath": "$.rotatemasterpwd.wait_time",
+        "Next": "check-rotate-pwd"
+      },
+      "check-rotate-pwd": {
+        "Type": "Task",
+        "Resource": "${awssoldb-CheckStatus}",
+        "Next": "outcome-rotate-pwd",
+        "InputPath": "$.rotatemasterpwd.check",
+        "ResultPath": "$.rotatemasterpwd.check.result"
+      },
+      "outcome-rotate-pwd": {
+        "Type": "Choice",
+        "Choices": [
+          {
+            "Variable": "$.rotatemasterpwd.check.result.body",
+            "StringEquals": "SUCCEEDED",
+            "Next": "engine-choice"
+          }
+        ],
+        "Default": "wait-rotate-pwd"
+      },
+      "engine-choice": {
+        "Type" : "Choice",
+        "Choices": [
+          {
+            "Variable": "$.runscripts.engine",
+            "StringEquals": "mysql",
+            "Next": "run-scripts-mysql"
+          },
+          {
+            "Variable": "$.runscripts.engine",
+            "StringEquals": "aurora-mysql",
+            "Next": "run-scripts-mysql"
+          },
+          {
+            "Variable": "$.runscripts.engine",
+            "StringEquals": "mariadb",
+            "Next": "run-scripts-mysql"
+          }
+        ],
+        "Default": "update-dynamodb"
+      },
+      "run-scripts-mysql": {
+      "Type": "Task",
+      "Resource": "${awssoldb-RunScriptsMySQL}",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "InputPath": "$.runscripts",
+      "ResultPath": "$.runscripts.result",
+      "Next": "wait-run-scripts",
+      "Catch": [ {
+        "ErrorEquals": [ "States.TaskFailed" ],
+        "ResultPath": "$.runscripts.errormsg",
+        "Next": "update-dynamodb-failure"
+        }
+      ]
+      },
+      "wait-run-scripts": {
+        "Type": "Wait",
+        "SecondsPath": "$.runscripts.wait_time",
+        "Next": "check-run-scripts"
+      },
+      "check-run-scripts": {
+        "Type": "Task",
+        "Resource": "${awssoldb-CheckStatus}",
+        "Next": "outcome-run-scripts",
+        "InputPath": "$.runscripts.check",
+        "ResultPath": "$.runscripts.check.result"
+      },
+      "outcome-run-scripts": {
+        "Type": "Choice",
+        "Choices": [
+          {
+            "Variable": "$.runscripts.check.result.body",
+            "StringEquals": "SUCCEEDED",
+            "Next": "update-dynamodb"
+          }
+        ],
+        "Default": "wait-run-scripts"
+      },
+      "update-dynamodb": {
+      "Type": "Task",
+      "Resource": "${awssoldb-UpdateDynamoDb}",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "InputPath": "$.updatedynamodb",
+      "ResultPath": "$.updatedynamodb.result",
+      "Next": "send-msg"
+      },
+      "send-msg": {
+      "Type": "Task",
+      "Resource": "${awssoldb-SendMsg}",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "InputPath": "$.sendmsg",
+      "ResultPath": "$.sendmsg.result",
+      "Next": "RESTORE-COMPLETE"
+      },
+      "RESTORE-COMPLETE": {
+        "Type": "Pass",
+        "End": true
+      },
+      "update-dynamodb-failure": {
+      "Type": "Task",
+      "Resource": "${awssoldb-UpdateDynamoDbFailure}",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "InputPath": "$.updatedynamodb",
+      "ResultPath": "$.updatedynamodb.result",
+      "Next": "send-msg-failure"
+      },
+      "send-msg-failure": {
+      "Type": "Task",
+      "Resource": "${awssoldb-SendMsgFailure}",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "InputPath": "$.sendmsg",
+      "ResultPath": "$.sendmsg.result",
+      "Next": "RESTORE-FAILED"
+      },
+      "RESTORE-FAILED": {
+        "Type": "Fail",
+        "Error": "Restore failed",
+        "Cause": "One of the states failed. Please check the logs"
+      }
+    }
+  }

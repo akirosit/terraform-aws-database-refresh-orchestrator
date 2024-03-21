@@ -1,0 +1,28 @@
+{
+  "comment": "Input for the State Machine",
+  "TagApplication": "${AppName}",
+  "TagEnvironment": "preprod",
+  "SourceDBClusterIdentifier": "${SourceCluster}",
+  "DbClusterIdentifier": "${Cluster}",
+  "TmpDbClusterIdentifier": "${Cluster}-restore",
+  "DbInstanceIdentifier": "${ClusterInstance}",
+  "TmpDbInstanceIdentifier": "${ClusterInstance}-restore",
+  "DbName": "classicmodels",
+  "DbSubnetGroupName": "${DBSubnetGroup}",
+  "DbInstanceClass": "${DbInstanceClass}",
+  "DbClusterParameterGroupName": "${ParameterGroup}",
+  "DbParameterGroupName": "${ParameterGroup}",
+  "VpcSecurityGroupIds": [
+    "${DBSecurityGroup}"
+  ],
+  "KmsKeyId": "${KmsKeyId}",
+  "MasterUserSecretKmsKeyId": "${MasterUserSecretKmsKeyId}",
+  "RefreshBucket": "${RefreshBucket}",
+  "RefreshBucketPrefix": "${RefreshBucketPrefix}",
+  "DynamoDBTableName": "${DynamoDBTable}",
+  "SNSTopicArn": "${SnsTopicArn}",
+  "SNSSubject": "Application ${AppName}: restore of the database instance ${SourceCluster} [COMPLETED]",
+  "SNSMessage": "The restore of the database instance ${Cluster} from the source ${SourceCluster} has been completed successfully.",
+  "SNSSubjectFailure": "Application ${AppName}: restore of the database instance ${Cluster} [FAILED]",
+  "SNSMessageFailure": "The restore of the database instance ${Cluster} from the source ${SourceCluster} has failed."
+}

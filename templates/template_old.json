@@ -1,0 +1,239 @@
+{
+    "comment": "Input for the State Machine",
+    "deletereplicas": {
+      "dbservice": "aurora",
+      "cluster": "${Cluster}",
+      "wait_time": 10,
+      "check": {
+         "dbservice": "aurora",
+         "cluster": "${Cluster}",
+         "checktodo": "checkdeletereplicas",
+         "torun": "false"
+      },
+      "torun": "false"
+    },
+    "stopdb": {
+      "wait_time": 3,
+      "check": {
+         "torun": "false"
+      },
+      "torun": "false"
+    },
+    "delete-restore": {
+      "dbservice": "aurora",
+      "dbinstance": "${ClusterInstance}-restore",
+      "wait_time": 10,
+      "check": {
+         "dbservice": "aurora",
+         "dbinstance": "${ClusterInstance}-restore",
+         "checktodo": "checkdelete",
+         "torun": "true"
+      },
+      "torun": "true"
+    },
+    "deletecluster-restore": {
+      "dbservice": "aurora",
+      "cluster": "${Cluster}-restore",
+      "wait_time": 10,
+      "check": {
+         "dbservice": "aurora",
+         "cluster": "${Cluster}-restore",
+         "checktodo": "checkdeletecluster",
+         "torun": "true"
+      },
+      "torun": "true"
+    },
+    "restore": {
+      "dbservice": "aurora",
+      "sourcecluster": "${SourceCluster}",
+      "targetcluster": "${Cluster}-restore",
+      "restoretype": "fastcloning",
+      "engine": "aurora-mysql",
+      "application": "${AppName}",
+      "environment": "",
+      "port": 3306,
+      "subgrp": "${DBSubnetGroup}",
+      "iamdbauth": "False",
+      "cwalogs": "audit,error,general,slowquery",
+      "copytagstosnap": "True",
+      "cluparamgrp": "${ParameterGroup}",
+      "backtrack": 0,
+      "deletionprotection": "False",
+      "secgrpids": "${DBSecurityGroup}",
+      "wait_time": 10,
+      "check": {
+         "dbservice": "aurora",
+         "cluster": "${Cluster}-restore",
+         "checktodo": "checkrestore",
+         "torun": "true"
+      },
+      "torun": "true"
+    },
+    "createinstance": {
+      "dbservice": "aurora",
+      "cluster": "${Cluster}-restore",
+      "dbinstance": "${ClusterInstance}-restore",
+      "application": "${AppName}",
+      "environment": "",
+      "dbclass": "${DbInstanceClass}",
+      "engine": "aurora-mysql",
+      "subgrp": "${DBSubnetGroup}",
+      "dbparamgrp": "${ParameterGroup}",
+      "autominor": "False",
+      "copytagstosnap": "True",
+      "perfinsights": "False",
+      "enhancedmon": "False",
+      "wait_time": 10,
+      "check": {
+         "dbservice": "aurora",
+         "dbinstance": "${ClusterInstance}-restore",
+         "checktodo": "checkcreate",
+         "torun": "true"
+      },
+      "torun": "true"
+    },
+    "delete": {
+      "dbservice": "aurora",
+      "dbinstance": "${ClusterInstance}",
+      "wait_time": 10,
+      "check": {
+         "dbservice": "aurora",
+         "dbinstance": "${ClusterInstance}",
+         "checktodo": "checkdelete",
+         "torun": "true"
+      },
+      "torun": "true"
+    },
+    "deletecluster": {
+      "dbservice": "aurora",
+      "cluster": "${Cluster}",
+      "wait_time": 10,
+      "check": {
+         "dbservice": "aurora",
+         "cluster": "${Cluster}",
+         "checktodo": "checkdeletecluster",
+         "torun": "true"
+      },
+      "torun": "true"
+    },
+    "renamecluster": {
+      "dbservice": "aurora",
+      "cluster": "${Cluster}-restore",
+      "cluster_newname": "${Cluster}",
+      "wait_time": 10,
+      "check": {
+         "dbservice": "aurora",
+         "cluster": "${Cluster}",
+         "checktodo": "checkrenamecluster",
+         "torun": "true"
+      },
+      "torun": "true"
+    },
+    "rename": {
+      "dbservice": "aurora",
+      "dbinstance": "${ClusterInstance}-restore",
+      "dbinstance_newname": "${ClusterInstance}",
+      "wait_time": 10,
+      "check": {
+         "dbservice": "aurora",
+         "dbinstance": "${ClusterInstance}",
+         "checktodo": "checkrename",
+         "torun": "true"
+      },
+      "torun": "true"
+    },
+    "fixtags": {
+      "dbservice": "aurora",
+      "cluster": "${Cluster}",
+      "cluarn": "${ClusterArn}",
+      "dbinstance": "auposinstd",
+      "dbarn": "${ClusterInstanceArn}",
+      "wait_time": 10,
+      "check": {
+         "dbservice": "aurora",
+         "cluster": "${Cluster}",
+         "cluarn": "${ClusterArn}",
+         "dbinstance": "${ClusterInstance}",
+         "dbarn": "${ClusterInstanceArn}",
+         "checktodo": "checkfixtags",
+         "torun": "true"
+      },
+      "torun": "true"
+    },
+    "createreplicas": {
+      "dbservice": "aurora",
+      "cluster": "auposclud",
+      "engine": "aurora-postgresql",
+      "application": "${AppName}",
+      "environment": "development",
+      "dbinstance": "auposinstd",
+      "autominor": "False",
+      "copytagstosnap": "True",
+      "subgrp": "default",
+      "dbparamgrp": "default.aurora-postgresql10",
+      "replicas": "auposinstd-b_db.t3.medium",
+      "wait_time": 10,
+      "check": {
+         "dbservice": "aurora",
+         "replicas": "auposinstd-b",
+         "checktodo": "checkreplicas",
+         "torun": "true"
+      },
+      "torun": "false"
+    },
+    "changemasterpwd": {
+      "dbservice": "aurora",
+      "cluster": "auposclud",
+      "temppwd": "temppwd123",
+      "secret": "false",
+      "wait_time": 10,
+      "check": {
+         "dbservice": "aurora",
+         "cluster": "auposclud",
+         "checktodo": "checkpwd",
+         "torun": "true"
+      },    
+      "torun": "false"
+    },
+    "rotatemasterpwd": {
+      "wait_time": 3,
+      "check": {
+         "torun": "false"
+      },
+      "torun": "false"
+    },
+    "runscripts": {
+      "dbservice": "aurora",
+      "engine": "aurora-mysql",
+      "cluster":"${Cluster}",
+      "method": "lambda",
+      "secretname": "rds!cluster-28ef25dd-151c-4e5a-9de6-99f92dc01a98-6pWzb1",
+      "bucketname": "",
+      "prefix": ""
+      "wait_time": 3,
+      "check": {
+         "torun": "false"
+      },
+      "torun": "false"
+    },
+    "updatedynamodb": {
+      "dbservice": "aurora",
+      "dbinstance": "${Cluster}",
+      "application": "${AppName}",
+      "environment": "",
+      "source": "${SourceCluster}",
+      "restoretype": "fastcloning",
+      "tablename": "${DynamoDBTable}",
+      "torun": "true"
+    },
+    "sendmsg": {
+      "dbservice": "aurora",
+      "application": "${AppName}",
+      "environment": "",
+      "dbinstance": "${Cluster}",
+      "source": "${SourceCluster}",
+      "restoretype": "fastcloning",
+      "topicarn": "${SnsTopicArn}",
+      "torun": "true"
+    }
+  }
