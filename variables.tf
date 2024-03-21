@@ -30,9 +30,6 @@ variable "databases_to_refresh" {
     DBSecurityGroupArn       = string
     DbInstanceClass          = string
     KmsKeyId                 = string
-    SourceEFSName            = string
-    EFSName                  = string
-    EFSArn                   = string
   }))
 }
 
