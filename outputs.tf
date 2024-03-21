@@ -24,3 +24,7 @@ output "step_function_dynamodb_arn" {
 output "step_function_sns_arn" {
   value = local.sns_topic_arn
 }
+
+output "refresh_bucket_id" {
+  value = local.refresh_bucket_id
+}

@@ -15,10 +15,10 @@ locals {
       DbInstanceClass          = app_input.DbInstanceClass
       KmsKeyId                 = app_input.KmsKeyId
       MasterUserSecretKmsKeyId = app_input.KmsKeyId
-      RefreshBucket            = aws_s3_bucket.refresh_bucket.id
+      RefreshBucket            = local.refresh_bucket_id
       RefreshBucketPrefix      = local.post_sql_scripts_bucket_prefix
       DynamoDBTable            = aws_dynamodb_table.dynamodbTable.name
-      SnsTopicArn              = local.local.sns_topic_arn
+      SnsTopicArn              = local.sns_topic_arn
     }
   }
   lambdas_arn = { for lambda_name, lambda in aws_lambda_function.functions :
@@ -41,7 +41,7 @@ resource "local_file" "step_function_json_input" {
 
 resource "aws_s3_object" "step_function_json_input" {
   for_each = local.step_function_input
-  bucket   = aws_s3_bucket.refresh_bucket.id
+  bucket   = local.refresh_bucket_id
   key      = "db-json/${local.current_region}/db-${each.key}.json"
   source   = local_file.step_function_json_input[each.key].filename
   etag     = local_file.step_function_json_input[each.key].content_md5
@@ -49,7 +49,7 @@ resource "aws_s3_object" "step_function_json_input" {
 
 resource "aws_s3_object" "step_function_json_input_hash" {
   for_each = local.step_function_input
-  bucket   = aws_s3_bucket.refresh_bucket.id
+  bucket   = local.refresh_bucket_id
   key      = "db-json/${local.current_region}/db-${each.key}.json.base64sha256"
   content  = local_file.step_function_json_input[each.key].content_base64sha256
 }

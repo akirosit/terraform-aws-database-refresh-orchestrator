@@ -45,3 +45,9 @@ variable "sns_topic_arn" {
   type        = string
   default     = null
 }
+
+variable "s3_bucket_id" {
+  description = "Existing S3 object ID to put lambdas, layers, sql scripts and step function input json files"
+  type        = string
+  default     = null
+}

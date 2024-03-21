@@ -1,7 +1,12 @@
 # Purpose: Create an S3 bucket to store the lambda functions
 
 resource "aws_s3_bucket" "refresh_bucket" {
+  count  = var.s3_bucket_id ? 0 : 1
   bucket = local.name
+}
+
+locals {
+  refresh_bucket_id = var.s3_bucket_id ? var.s3_bucket_id : aws_s3_bucket.refresh_bucket[0].id
 }
 
 locals {
@@ -36,7 +41,7 @@ data "archive_file" "lambda_functions" {
 
 resource "aws_s3_object" "lambda_functions" {
   for_each = data.archive_file.lambda_functions
-  bucket   = aws_s3_bucket.refresh_bucket.id
+  bucket   = local.refresh_bucket_id
   key      = "lambdas/${each.key}.zip"
   source   = each.value.output_path
   etag     = each.value.output_md5
@@ -44,7 +49,7 @@ resource "aws_s3_object" "lambda_functions" {
 
 resource "aws_s3_object" "lambda_functions_hash" {
   for_each = data.archive_file.lambda_functions
-  bucket   = aws_s3_bucket.refresh_bucket.id
+  bucket   = local.refresh_bucket_id
   key      = "lambdas/${each.key}.zip.base64sha256"
   content  = each.value.output_base64sha256
 }

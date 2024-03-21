@@ -75,8 +75,8 @@ data "aws_iam_policy_document" "lambda_role" {
       "s3:GetObject"
     ]
     resources = [
-      aws_s3_bucket.refresh_bucket.arn,
-      "${aws_s3_bucket.refresh_bucket.arn}/*"
+      "arn:aws:s3:::${local.refresh_bucket_id}",
+      "arn:aws:s3:::${local.refresh_bucket_id}/*"
     ]
   }
 

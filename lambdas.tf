@@ -23,7 +23,7 @@ resource "aws_lambda_layer_version" "layer" {
 resource "aws_lambda_function" "functions" {
   for_each         = aws_s3_object.lambda_functions
   function_name    = each.key
-  role             = aws_iam_role.lambda_db_restore.arn
+  role             = aws_iam_role.lambda.arn
   s3_bucket        = each.value.bucket
   s3_key           = each.value.key
   source_code_hash = aws_s3_object.lambda_functions_hash[each.key].content
