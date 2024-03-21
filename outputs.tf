@@ -1,5 +1,5 @@
 output "iam_role_lambda" {
-  value = aws_iam_role.lambda_db_restore.arn
+  value = aws_iam_role.lambda.arn
 }
 
 output "iam_role_step_function" {

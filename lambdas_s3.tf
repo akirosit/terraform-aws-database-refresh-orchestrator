@@ -5,7 +5,7 @@ resource "aws_s3_bucket" "refresh_bucket" {
 }
 
 locals {
-  lambdas_path = local.lambdas_path
+  lambdas_path = "${path.module}/lambdas"
 }
 
 resource "null_resource" "pip_install" {

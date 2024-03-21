@@ -18,7 +18,7 @@ locals {
       RefreshBucket            = aws_s3_bucket.refresh_bucket.id
       RefreshBucketPrefix      = local.post_sql_scripts_bucket_prefix
       DynamoDBTable            = aws_dynamodb_table.dynamodbTable.name
-      SnsTopicArn              = aws_sns_topic.refresh.arn
+      SnsTopicArn              = local.local.sns_topic_arn
     }
   }
   lambdas_arn = { for lambda_name, lambda in aws_lambda_function.functions :
