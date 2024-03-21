@@ -40,7 +40,7 @@ resource "local_file" "step_function_json_input" {
 }
 
 resource "aws_s3_object" "step_function_json_input" {
-  for_each = local.step_function_input
+  for_each = var.put_step_function_input_json_files_on_s3 ? local.step_function_input : {}
   bucket   = local.refresh_bucket_id
   key      = "db-json/${local.current_region}/db-${each.key}.json"
   source   = local_file.step_function_json_input[each.key].filename
@@ -48,7 +48,7 @@ resource "aws_s3_object" "step_function_json_input" {
 }
 
 resource "aws_s3_object" "step_function_json_input_hash" {
-  for_each = local.step_function_input
+  for_each = var.put_step_function_input_json_files_on_s3 ? local.step_function_input : {}
   bucket   = local.refresh_bucket_id
   key      = "db-json/${local.current_region}/db-${each.key}.json.base64sha256"
   content  = local_file.step_function_json_input[each.key].content_base64sha256

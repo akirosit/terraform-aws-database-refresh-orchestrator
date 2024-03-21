@@ -79,7 +79,6 @@ data "aws_iam_policy_document" "lambda_role" {
       "arn:aws:s3:::${local.refresh_bucket_id}/*"
     ]
   }
-
 }
 
 #
@@ -109,10 +108,7 @@ data "aws_iam_policy_document" "step_function_role" {
     actions = [
       "states:StartExecution"
     ]
-    resources = [
-      aws_sfn_state_machine.refresh_env.arn,
-      aws_sfn_state_machine.refresh_env_new.arn
-    ]
+    resources = [aws_sfn_state_machine.refresh_env.arn]
   }
   statement {
     effect = "Allow"
@@ -179,6 +175,6 @@ data "aws_iam_policy_document" "step_function_role" {
     actions = [
       "sns:Publish"
     ]
-    resources = [aws_sns_topic.refresh.arn]
+    resources = [local.sns_topic_arn]
   }
 }

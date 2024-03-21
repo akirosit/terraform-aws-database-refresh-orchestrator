@@ -1,16 +1,14 @@
 # Purpose: Create an S3 bucket to store the lambda functions
 
 resource "aws_s3_bucket" "refresh_bucket" {
-  count  = var.s3_bucket_id ? 0 : 1
-  bucket = local.name
+  count         = var.create_s3_bucket ? 1 : 0
+  bucket        = var.s3_bucket_name ? var.s3_bucket_name : null
+  bucket_prefix = var.s3_bucket_name ? null : local.name
 }
 
 locals {
-  refresh_bucket_id = var.s3_bucket_id ? var.s3_bucket_id : aws_s3_bucket.refresh_bucket[0].id
-}
-
-locals {
-  lambdas_path = "${path.module}/lambdas"
+  refresh_bucket_id = var.s3_bucket_name ? var.s3_bucket_name : aws_s3_bucket.refresh_bucket[0].id
+  lambdas_path      = "${path.module}/lambdas"
 }
 
 resource "null_resource" "pip_install" {
