@@ -118,7 +118,7 @@ def lambda_handler(event, context):
                     for row in cur.fetchall():
                         data += str(row) + "\n"
                 logger.info(data)
-                s3client.put_object(Bucket=bucketname, Key=key+"_result", Body=data)
+                #s3client.put_object(Bucket=bucketname, Key=key+"_result", Body=data)
                 logger.info("Executed")
         except ProgrammingError as err:
             logger.info("Scripts run with a ProgrammingError")
