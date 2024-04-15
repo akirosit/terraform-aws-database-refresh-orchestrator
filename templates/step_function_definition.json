@@ -1,11 +1,160 @@
 {
   "Comment": "Database Refresh Orchestrator for Amazon RDS and Amazon Aurora",
-  "StartAt": "RESTORE",
+  "StartAt": "RESTORE-CLUSTER",
   "States": {
-    "RESTORE": {
+    "RESTORE-CLUSTER": {
       "Comment": "Restore steps",
       "Type": "Pass",
-      "Next": "perform-restore"
+      "Next": "choice-restore-type"
+    },
+    "choice-restore-type": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.RestoreType",
+          "StringEquals": "from-snapshot",
+          "Next": "get-db-cluster-snapshot-infos"
+        }
+      ],
+      "Default": "perform-restore"
+    },
+    "get-db-cluster-snapshot-infos": {
+      "Type": "Task",
+      "Parameters": {
+        "DbClusterIdentifier.$": "$.SourceDBClusterIdentifier"
+      },
+      "Resource": "arn:aws:states:::aws-sdk:rds:describeDBClusterSnapshots",
+      "Next": "choice-std-or-serverless",
+      "ResultSelector": {
+        "DBClusterSnapshotIdentifier.$": "$.DbClusterSnapshots[4].DbClusterSnapshotIdentifier",
+        "DBClusterSnapshotArn.$": "$.DbClusterSnapshots[4].DbClusterSnapshotArn",
+        "SnapshotCreateTime.$": "$.DbClusterSnapshots[4].SnapshotCreateTime",
+        "EngineVersion.$": "$.DbClusterSnapshots[4].EngineVersion"
+      },
+      "ResultPath": "$.result-get-db-cluster-snapshot-infos"
+    },
+    "choice-std-or-serverless": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.DbInstanceClass",
+          "StringEquals": "db.serverless",
+          "Next": "perform-restore-from-snapshot-serverless"
+        }
+      ],
+      "Default": "perform-restore-from-snapshot"
+    },
+    "perform-restore-from-snapshot": {
+      "Type": "Task",
+      "Parameters": {
+        "DbClusterIdentifier.$": "$.TmpDbClusterIdentifier",
+        "Engine": "aurora-mysql",
+        "DbClusterInstanceClass.$": "$.DbInstanceClass",
+        "EngineVersion.$": "$.result-get-db-cluster-snapshot-infos.EngineVersion",
+        "SnapshotIdentifier.$": "$.result-get-db-cluster-snapshot-infos.DBClusterSnapshotIdentifier",
+        "DbSubnetGroupName.$": "$.DbSubnetGroupName",
+        "DbClusterParameterGroupName.$": "$.DbClusterParameterGroupName",
+        "CopyTagsToSnapshot": true,
+        "EnableIAMDatabaseAuthentication": "False",
+        "EnableCloudwatchLogsExports": [
+          "audit",
+          "error",
+          "general",
+          "slowquery"
+        ],
+        "DeletionProtection": false,
+        "VpcSecurityGroupIds.$": "$.VpcSecurityGroupIds",
+        "Tags": [
+          {
+            "Key": "Application",
+            "Value.$": "$.TagApplication"
+          },
+          {
+            "Key": "Environment",
+            "Value.$": "$.TagEnvironment"
+          },
+          {
+            "Key": "refresh",
+            "Value": "true"
+          },
+          {
+            "Key": "refresh-cluster",
+            "Value.$": "$.SourceDBClusterIdentifier"
+          }
+        ]
+      },
+      "Resource": "arn:aws:states:::aws-sdk:rds:restoreDBClusterFromSnapshot",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "ResultPath": "$.restore-result",
+      "Next": "wait-restore",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "ResultPath": "$.restore.errormsg",
+          "Next": "update-dynamodb-failure"
+        }
+      ]
+    },
+    "perform-restore-from-snapshot-serverless": {
+      "Type": "Task",
+      "Parameters": {
+        "DbClusterIdentifier.$": "$.TmpDbClusterIdentifier",
+        "Engine": "aurora-mysql",
+        "DbClusterInstanceClass.$": "$.DbInstanceClass",
+        "ServerlessV2ScalingConfiguration": {
+          "MinCapacity": 1,
+          "MaxCapacity": 2
+        },
+        "EngineVersion.$": "$.result-get-db-cluster-snapshot-infos.EngineVersion",
+        "SnapshotIdentifier.$": "$.result-get-db-cluster-snapshot-infos.DBClusterSnapshotIdentifier",
+        "DbSubnetGroupName.$": "$.DbSubnetGroupName",
+        "DbClusterParameterGroupName.$": "$.DbClusterParameterGroupName",
+        "CopyTagsToSnapshot": true,
+        "EnableIAMDatabaseAuthentication": "False",
+        "EnableCloudwatchLogsExports": [
+          "audit",
+          "error",
+          "general",
+          "slowquery"
+        ],
+        "DeletionProtection": false,
+        "VpcSecurityGroupIds.$": "$.VpcSecurityGroupIds",
+        "Tags": [
+          {
+            "Key": "Application",
+            "Value.$": "$.TagApplication"
+          },
+          {
+            "Key": "Environment",
+            "Value.$": "$.TagEnvironment"
+          },
+          {
+            "Key": "refresh",
+            "Value": "true"
+          },
+          {
+            "Key": "refresh-cluster",
+            "Value.$": "$.SourceDBClusterIdentifier"
+          }
+        ]
+      },
+      "Resource": "arn:aws:states:::aws-sdk:rds:restoreDBClusterFromSnapshot",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "ResultPath": "$.restore-result",
+      "Next": "wait-restore",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "ResultPath": "$.restore.errormsg",
+          "Next": "update-dynamodb-failure"
+        }
+      ]
     },
     "perform-restore": {
       "Type": "Task",
@@ -82,10 +231,15 @@
         {
           "Variable": "$.check-status-restore-result.DbClusters[0].Status",
           "StringEquals": "available",
-          "Next": "create-instance"
+          "Next": "RESTORE-INSTANCE"
         }
       ],
       "Default": "wait-restore"
+    },
+    "RESTORE-INSTANCE": {
+      "Comment": "Restore steps",
+      "Type": "Pass",
+      "Next": "create-instance"
     },
     "create-instance": {
       "Type": "Task",
@@ -153,12 +307,102 @@
         {
           "Variable": "$.check-status-create-instance-result.DbInstances[0].DbInstanceStatus",
           "StringEquals": "available",
-          "Next": "POST-RESTORE"
+          "Next": "choice-run-scripts-old-cluster"
         }
       ],
       "Default": "wait-create-instance"
     },
-    "POST-RESTORE": {
+    "choice-run-scripts-old-cluster": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.RunSqlScriptsOldCluster",
+          "BooleanEquals": true,
+          "Next": "run-sql-scripts-old-cluster"
+        }
+      ],
+      "Default": "choice-delete-old-cluster"
+    },
+    "run-sql-scripts-old-cluster": {
+      "Type": "Map",
+      "ItemReader": {
+        "Resource": "arn:aws:states:::s3:listObjectsV2",
+        "Parameters": {
+          "Bucket.$": "$.RefreshBucket",
+          "Prefix.$": "$.RefreshBucketPrefixOldCluster"
+        }
+      },
+      "ItemSelector": {
+        "cluster.$": "$.DbClusterIdentifier",
+        "dbname.$": "$.OldDatabaseName",
+        "secretname.$": "$.OldMasterUserSecretArn",
+        "bucketname.$": "$.RefreshBucket",
+        "key.$": "$$.Map.Item.Value.Key"
+      },
+      "MaxConcurrency": 1000,
+      "ItemProcessor": {
+        "ProcessorConfig": {
+          "Mode": "DISTRIBUTED",
+          "ExecutionType": "STANDARD"
+        },
+        "StartAt": "lambda-pre-sql-script",
+        "States": {
+          "lambda-pre-sql-script": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "OutputPath": "$.Payload",
+            "Parameters": {
+              "FunctionName": "${awssoldb-RunScriptsMySQL}",
+              "Payload": {
+                "cluster.$": "$.cluster",
+                "dbname.$": "$.dbname",
+                "secretname.$": "$.secretname",
+                "bucketname.$": "$.bucketname",
+                "key.$": "$.key"
+              }
+            },
+            "Retry": [
+              {
+                "ErrorEquals": [
+                  "Lambda.ServiceException",
+                  "Lambda.AWSLambdaException",
+                  "Lambda.SdkClientException",
+                  "Lambda.TooManyRequestsException"
+                ],
+                "IntervalSeconds": 1,
+                "MaxAttempts": 3,
+                "BackoffRate": 2
+              }
+            ],
+            "End": true
+          }
+        }
+      },
+      "Label": "S3Preobjectkeys",
+      "ResultPath": "$.run-sql-scripts-old-cluster-result",
+      "Next": "choice-delete-old-cluster",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "ResultPath": "$.run-sql-scripts-old-cluster-errormsg",
+          "Next": "update-dynamodb-failure"
+        }
+      ]
+    },
+    "choice-delete-old-cluster": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.DeleteOldCluster",
+          "BooleanEquals": true,
+          "Next": "DELETE-OLD-CLUSTER"
+        }
+      ],
+      "Default": "POST-RESTORE-SCRIPTS"
+    },
+    "DELETE-OLD-CLUSTER": {
       "Comment": "Post-restore steps",
       "Type": "Pass",
       "Next": "get-old-database-arn"
@@ -358,11 +602,222 @@
             "States.TaskFailed"
           ],
           "ResultPath": "$.check-status-delete-old-cluster.errormsg",
-          "Next": "rename-cluster-and-enable-master-user-secret"
+          "Next": "POST-RESTORE-SCRIPTS"
         }
       ]
     },
-    "rename-cluster-and-enable-master-user-secret": {
+    "POST-RESTORE-SCRIPTS": {
+      "Comment": "Restore steps",
+      "Type": "Pass",
+      "Next": "add-role-to-cluster"
+    },
+    "add-role-to-cluster": {
+      "Type": "Task",
+      "Next": "add-role-to-cluster-pg",
+      "Parameters": {
+        "DbClusterIdentifier.$": "$.TmpDbClusterIdentifier",
+        "RoleArn.$": "$.RDSRoleArn"
+      },
+      "Resource": "arn:aws:states:::aws-sdk:rds:addRoleToDBCluster",
+      "ResultPath": "$.add-role-to-cluster-result",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "ResultPath": "$.renamecluster.errormsg",
+          "Next": "update-dynamodb-failure"
+        }
+      ]
+    },
+    "add-role-to-cluster-pg": {
+      "Type": "Task",
+      "Next": "enable-master-user-secret",
+      "Parameters": {
+        "DbClusterParameterGroupName.$": "$.DbClusterParameterGroupName",
+        "Parameters": [
+          {
+            "ParameterName": "aws_default_s3_role",
+            "ParameterValue.$": "$.RDSRoleArn",
+            "ApplyMethod": "immediate"
+          }
+        ]
+      },
+      "Resource": "arn:aws:states:::aws-sdk:rds:modifyDBClusterParameterGroup",
+      "ResultPath": "$.add-role-to-cluster-pg-result",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "ResultPath": "$.renamecluster.errormsg",
+          "Next": "update-dynamodb-failure"
+        }
+      ]
+    },
+    "enable-master-user-secret": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:modifyDBCluster",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "Parameters": {
+        "DbClusterIdentifier.$": "$.TmpDbClusterIdentifier",
+        "ManageMasterUserPassword": true,
+        "MasterUserSecretKmsKeyId.$": "$.MasterUserSecretKmsKeyId",
+        "ApplyImmediately": true
+      },
+      "ResultPath": "$.enable-master-user-secret-result",
+      "Next": "wait-enable-master-user-secret",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "An error occurred (InvalidDBClusterStateFault) when calling the ModifyDBCluster operation: DB cluster is not available for modification with status backing-up"
+          ],
+          "IntervalSeconds": 60,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "ResultPath": "$.renamecluster.errormsg",
+          "Next": "update-dynamodb-failure"
+        }
+      ]
+    },
+    "wait-enable-master-user-secret": {
+      "Type": "Wait",
+      "Seconds": 10,
+      "Next": "check-status-enable-master-user-secret"
+    },
+    "check-status-enable-master-user-secret": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:describeDBClusters",
+      "Next": "outcome-enable-master-user-secret",
+      "Parameters": {
+        "DbClusterIdentifier.$": "$.TmpDbClusterIdentifier"
+      },
+      "ResultPath": "$.check-status-enable-master-user-secret-result",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "ResultPath": "$.check-status-enable-master-user-secret-errormsg",
+          "Next": "wait-enable-master-user-secret"
+        }
+      ]
+    },
+    "outcome-enable-master-user-secret": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.check-status-enable-master-user-secret-result.DbClusters[0].Status",
+          "StringEquals": "available",
+          "Next": "choice-run-scripts"
+        }
+      ],
+      "Default": "wait-enable-master-user-secret"
+    },
+    "choice-run-scripts": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.RunSqlScripts",
+          "BooleanEquals": true,
+          "Next": "run-sql-scripts"
+        }
+      ],
+      "Default": "POST-RESTORE-RENAME"
+    },
+    "run-sql-scripts": {
+      "Type": "Map",
+      "ItemReader": {
+        "Resource": "arn:aws:states:::s3:listObjectsV2",
+        "Parameters": {
+          "Bucket.$": "$.RefreshBucket",
+          "Prefix.$": "$.RefreshBucketPrefix"
+        }
+      },
+      "ItemSelector": {
+        "cluster.$": "$.TmpDbClusterIdentifier",
+        "dbname.$": "$.DatabaseName",
+        "secretname.$": "$.enable-master-user-secret-result.DbCluster.MasterUserSecret.SecretArn",
+        "bucketname.$": "$.RefreshBucket",
+        "key.$": "$$.Map.Item.Value.Key"
+      },
+      "MaxConcurrency": 1000,
+      "ItemProcessor": {
+        "ProcessorConfig": {
+          "Mode": "DISTRIBUTED",
+          "ExecutionType": "STANDARD"
+        },
+        "StartAt": "lambda-sql-script",
+        "States": {
+          "lambda-sql-script": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "OutputPath": "$.Payload",
+            "Parameters": {
+              "FunctionName": "${awssoldb-RunScriptsMySQL}",
+              "Payload": {
+                "cluster.$": "$.cluster",
+                "dbname.$": "$.dbname",
+                "secretname.$": "$.secretname",
+                "bucketname.$": "$.bucketname",
+                "key.$": "$.key"
+              }
+            },
+            "Retry": [
+              {
+                "ErrorEquals": [
+                  "Lambda.ServiceException",
+                  "Lambda.AWSLambdaException",
+                  "Lambda.SdkClientException",
+                  "Lambda.TooManyRequestsException"
+                ],
+                "IntervalSeconds": 1,
+                "MaxAttempts": 3,
+                "BackoffRate": 2
+              }
+            ],
+            "End": true
+          }
+        }
+      },
+      "Label": "S3objectkeys",
+      "ResultPath": "$.run-sql-scripts-result",
+      "Next": "POST-RESTORE-RENAME",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "ResultPath": "$.run-sql-scripts-errormsg",
+          "Next": "update-dynamodb-failure"
+        }
+      ]
+    },
+    "POST-RESTORE-RENAME": {
+      "Comment": "Restore steps",
+      "Type": "Pass",
+      "Next": "choice-rename-cluster"
+    },
+    "choice-rename-cluster": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.RenameCluster",
+          "BooleanEquals": true,
+          "Next": "rename-cluster"
+        }
+      ],
+      "Default": "update-dynamodb"
+    },
+    "rename-cluster": {
       "Type": "Task",
       "Resource": "arn:aws:states:::aws-sdk:rds:modifyDBCluster",
       "TimeoutSeconds": 300,
@@ -481,76 +936,10 @@
         {
           "Variable": "$.check-status-rename-result.DbInstances[0].DbInstanceStatus",
           "StringEquals": "available",
-          "Next": "run-sql-scripts"
+          "Next": "update-dynamodb"
         }
       ],
       "Default": "wait-rename"
-    },
-    "run-sql-scripts": {
-      "Type": "Map",
-      "ItemReader": {
-        "Resource": "arn:aws:states:::s3:listObjectsV2",
-        "Parameters": {
-          "Bucket.$": "$.RefreshBucket",
-          "Prefix.$": "$.RefreshBucketPrefix"
-        }
-      },
-      "ItemSelector": {
-        "cluster.$": "$.DbClusterIdentifier",
-        "secretname.$": "$.rename-cluster-result.DbCluster.MasterUserSecret.SecretArn",
-        "bucketname.$": "$.RefreshBucket",
-        "key.$": "$$.Map.Item.Value.Key"
-      },
-      "MaxConcurrency": 1000,
-      "ItemProcessor": {
-        "ProcessorConfig": {
-          "Mode": "DISTRIBUTED",
-          "ExecutionType": "STANDARD"
-        },
-        "StartAt": "lambda-sql-script",
-        "States": {
-          "lambda-sql-script": {
-            "Type": "Task",
-            "Resource": "arn:aws:states:::lambda:invoke",
-            "OutputPath": "$.Payload",
-            "Parameters": {
-              "FunctionName": "${awssoldb-RunScriptsMySQL}:$LATEST",
-              "Payload": {
-                "cluster.$": "$.DbClusterIdentifier",
-                "dbname.$": "$.DbName",
-                "secretname.$": "$.rename-cluster-result.DbCluster.MasterUserSecret.SecretArn",
-                "bucketname.$": "$.RefreshBucket",
-                "keys.$": "$$.Map.Item.Value"
-              }
-            },
-            "Retry": [
-              {
-                "ErrorEquals": [
-                  "Lambda.ServiceException",
-                  "Lambda.AWSLambdaException",
-                  "Lambda.SdkClientException",
-                  "Lambda.TooManyRequestsException"
-                ],
-                "IntervalSeconds": 1,
-                "MaxAttempts": 3,
-                "BackoffRate": 2
-              }
-            ],
-            "End": true
-          }
-        }
-      },
-      "Label": "S3objectkeys",
-      "Next": "update-dynamodb",
-      "Catch": [
-        {
-          "ErrorEquals": [
-            "States.TaskFailed"
-          ],
-          "ResultPath": "$.run-sql-scripts-errormsg",
-          "Next": "update-dynamodb-failure"
-        }
-      ]
     },
     "update-dynamodb": {
       "Type": "Task",
@@ -571,7 +960,7 @@
             "S.$": "$.SourceDBClusterIdentifier"
           },
           "restoretype": {
-            "S": "fastcloning"
+            "S.$": "$.RestoreType"
           },
           "snapshot": {
             "S": "null"
@@ -630,7 +1019,7 @@
             "S.$": "$.SourceDBClusterIdentifier"
           },
           "restoretype": {
-            "S": "fastcloning"
+            "S.$": "$.RestoreType"
           },
           "snapshot": {
             "S": "null"

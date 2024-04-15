@@ -1,15 +1,12 @@
 # Description: This file is used to create security group for lambda functions
 
-locals {
-  databases_security_group_ids = {
-    for app_name, app_input in var.databases_to_refresh : app_name => app_input.DBSecurityGroup
-  }
-}
-
 resource "aws_security_group" "lambda" {
   description = "Security group attached to the Lambda functions used to rotate secrets"
   name        = "${local.name_cc}Lambda"
   vpc_id      = var.vpc_id
+  lifecycle {
+    create_before_destroy = true
+  }
 }
 
 resource "aws_security_group_rule" "lambda_https_egress" {
@@ -22,7 +19,7 @@ resource "aws_security_group_rule" "lambda_https_egress" {
 }
 
 resource "aws_security_group_rule" "lambda_mysql_egress" {
-  for_each                 = local.databases_security_group_ids
+  for_each                 = toset(local.cluster_security_group_ids)
   security_group_id        = aws_security_group.lambda.id
   type                     = "egress"
   protocol                 = "tcp"
@@ -32,7 +29,7 @@ resource "aws_security_group_rule" "lambda_mysql_egress" {
 }
 
 resource "aws_security_group_rule" "mysql_from_lambda" {
-  for_each                 = local.databases_security_group_ids
+  for_each                 = toset(local.cluster_security_group_ids)
   security_group_id        = each.value
   type                     = "ingress"
   protocol                 = "tcp"

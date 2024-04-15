@@ -2,30 +2,56 @@
 
 locals {
   step_function_input = {
-    for app_name, app_input in var.databases_to_refresh : app_name => {
-      AppName                  = app_name
-      SourceCluster            = app_input.SourceCluster
-      Cluster                  = app_input.Cluster
-      ClusterArn               = app_input.ClusterArn
-      ClusterInstance          = app_input.ClusterInstance
-      ClusterInstanceArn       = app_input.ClusterInstanceArn
-      ParameterGroup           = app_input.ParameterGroup
-      DBSubnetGroup            = app_input.DBSubnetGroup
-      DBSecurityGroup          = app_input.DBSecurityGroup
-      DbInstanceClass          = app_input.DbInstanceClass
-      KmsKeyId                 = app_input.KmsKeyId
-      MasterUserSecretKmsKeyId = app_input.KmsKeyId
-      RefreshBucket            = local.refresh_bucket_id
-      RefreshBucketPrefix      = local.post_sql_scripts_bucket_prefix
-      DynamoDBTable            = aws_dynamodb_table.dynamodbTable.name
-      SnsTopicArn              = local.sns_topic_arn
-    }
+    AppName                       = var.app_name
+    EnvName                       = var.env_name
+    SourceCluster                 = var.source_cluster
+    Cluster                       = var.refresh_cluster
+    ClusterArn                    = local.cluster_arn
+    ClusterInstance               = element(tolist(local.instance_databases), 0)
+    ClusterInstanceArn            = local.instance_databases_arn[0]
+    ClusterParameterGroup         = local.cluster_parameter_group
+    RestoreType                   = var.restore_type
+    DeleteOldCluster              = var.delete_old_cluster
+    ParameterGroup                = element(tolist(local.instance_parameter_group), 0)
+    DBSubnetGroup                 = element(tolist(local.cluster_db_subnet_group_name), 0)
+    DBSecurityGroup               = element(tolist(local.cluster_security_group_ids), 1)
+    DbInstanceClass               = local.db_instance_class
+    Encrypted                     = var.encrypted
+    KmsKeyId                      = var.kms_key_id == null ? "" : var.kms_key_id
+    MasterUserSecretKmsKeyId      = var.master_user_kms_key_id == null ? aws_kms_key.refresh_secret[0].key_id : var.master_user_kms_key_id
+    RefreshBucket                 = local.refresh_bucket_id
+    RunSqlScriptsBucket           = var.run_post_sql_scripts
+    RefreshBucketPrefix           = local.post_sql_scripts_bucket_prefix
+    OldMasterUserSecretArn        = local.cluster_master_user_secret_arn
+    RDSRoleArn                    = aws_iam_role.rds.arn
+    RunSqlScripts                 = var.run_post_sql_scripts
+    RunSqlScriptsOldCluster       = var.run_pre_sql_scripts
+    OldDatabaseName               = var.old_database_name
+    DatabaseName                  = var.database_name
+    RefreshBucketPrefixOldCluster = "${local.post_sql_scripts_bucket_prefix}-old"
+    RotateDatabaseUsersSecrets    = var.rotate_database_users_secrets
+    RotationLambdaARN             = aws_lambda_function.functions["SecretsManagerRDSMySQLRotationMultiUser"].arn
+    DatabaselUsersSecrets         = var.database_users_secrets
+    RenameCluster                 = var.rename_cluster
+    DynamoDBTable                 = aws_dynamodb_table.dynamodbTable.name
+    SnsTopicArn                   = local.sns_topic_arn
+    Tags                          = var.tags
   }
   lambdas_arn = { for lambda_name, lambda in aws_lambda_function.functions :
     lambda_name => lambda.arn
   }
 }
 
+resource "aws_kms_key" "refresh_secret" {
+  count       = var.master_user_kms_key_id == null ? 1 : 0
+  description = local.name
+}
+
+resource "aws_kms_alias" "refresh_secret" {
+  count         = var.master_user_kms_key_id == null ? 1 : 0
+  name          = "alias/${local.name}"
+  target_key_id = aws_kms_key.refresh_secret[0].key_id
+}
 
 resource "aws_sfn_state_machine" "refresh_env" {
   name       = local.name_cc
@@ -34,22 +60,21 @@ resource "aws_sfn_state_machine" "refresh_env" {
 }
 
 resource "local_file" "step_function_json_input" {
-  for_each = local.step_function_input
-  content  = templatefile("${path.module}/templates/step_function_input.json", each.value)
-  filename = "${path.module}/templates/${local.current_region}/db-${each.key}.json"
+  content  = templatefile("${path.module}/templates/step_function_input.json", local.step_function_input)
+  filename = "step_funcion_input/${local.current_region}/db-${var.app_name}-${var.env_name}.json"
 }
 
 resource "aws_s3_object" "step_function_json_input" {
-  for_each = var.put_step_function_input_json_files_on_s3 ? local.step_function_input : {}
-  bucket   = local.refresh_bucket_id
-  key      = "db-json/${local.current_region}/db-${each.key}.json"
-  source   = local_file.step_function_json_input[each.key].filename
-  etag     = local_file.step_function_json_input[each.key].content_md5
+  count  = var.put_step_function_input_json_files_on_s3 ? 1 : 0
+  bucket = local.refresh_bucket_id
+  key    = "db-json/${local.current_region}/db-${var.app_name}-${var.env_name}.json"
+  source = local_file.step_function_json_input.filename
+  etag   = local_file.step_function_json_input.content_md5
 }
 
 resource "aws_s3_object" "step_function_json_input_hash" {
-  for_each = var.put_step_function_input_json_files_on_s3 ? local.step_function_input : {}
-  bucket   = local.refresh_bucket_id
-  key      = "db-json/${local.current_region}/db-${each.key}.json.base64sha256"
-  content  = local_file.step_function_json_input[each.key].content_base64sha256
+  count   = var.put_step_function_input_json_files_on_s3 ? 1 : 0
+  bucket  = local.refresh_bucket_id
+  key     = "db-json/${local.current_region}/db-${var.app_name}-${var.env_name}.json.base64sha256"
+  content = local_file.step_function_json_input.content_base64sha256
 }

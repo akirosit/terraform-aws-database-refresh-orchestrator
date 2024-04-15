@@ -8,16 +8,6 @@ resource "aws_iam_role" "lambda" {
   assume_role_policy = data.aws_iam_policy_document.assume_from_lambda.json
 }
 
-data "aws_iam_policy_document" "assume_from_lambda" {
-  statement {
-    actions = ["sts:AssumeRole"]
-    principals {
-      type        = "Service"
-      identifiers = ["lambda.amazonaws.com"]
-    }
-  }
-}
-
 resource "aws_iam_role_policy_attachment" "lambda_basic_execution" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
   role       = aws_iam_role.lambda.name
@@ -35,6 +25,11 @@ resource "aws_iam_policy" "lambda_role" {
 
 resource "aws_iam_role_policy_attachment" "lambda_role" {
   policy_arn = aws_iam_policy.lambda_role.arn
+  role       = aws_iam_role.lambda.name
+}
+
+resource "aws_iam_role_policy_attachment" "lambda_s3" {
+  policy_arn = aws_iam_policy.s3.arn
   role       = aws_iam_role.lambda.name
 }
 
@@ -57,7 +52,23 @@ resource "aws_iam_role_policy_attachment" "step_function_role" {
   role       = aws_iam_role.step_function.name
 }
 
-resource "aws_iam_role_policy_attachment" "step_function_lambda_role" {
-  policy_arn = aws_iam_policy.lambda_role.arn
+resource "aws_iam_role_policy_attachment" "step_function_s3" {
+  policy_arn = aws_iam_policy.s3.arn
   role       = aws_iam_role.step_function.name
+}
+
+#
+# RDS IAM Role
+#
+resource "aws_iam_role" "rds" {
+  name               = "${local.name_cc}Rds"
+  assume_role_policy = data.aws_iam_policy_document.assume_from_rds.json
+}
+resource "aws_iam_policy" "s3" {
+  name   = "${local.name_cc}S3"
+  policy = data.aws_iam_policy_document.s3.json
+}
+resource "aws_iam_role_policy_attachment" "rds_s3" {
+  policy_arn = aws_iam_policy.s3.arn
+  role       = aws_iam_role.rds.name
 }

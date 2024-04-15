@@ -10,27 +10,67 @@ variable "private_subnets_ids" {
   description = "The private subnets IDs (where lambda functions will be deployed)"
   type        = list(string)
 }
+variable "source_cluster" {
+  description = "The source cluster to be refreshed"
+  type        = string
+}
 
-variable "databases_to_refresh" {
+variable "restore_type" {
+  description = "Restore type: 'from-snapshot' or 'fast-clone'"
+  type        = string
+  default     = "from-snapshot"
+}
+
+variable "delete_old_cluster" {
+  description = "Delete old cluster after refresh"
+  type        = bool
+  default     = false
+}
+
+variable "rename_cluster" {
+  description = "Rename the cluster after refresh"
+  type        = bool
+  default     = true
+}
+
+variable "refresh_cluster" {
+  description = "The cluster to be refreshed/created"
+  type        = string
+}
+
+variable "refresh_cluster_already_exist" {
+  description = "The cluster to be refreshed/created already exist"
+  type        = bool
+  default     = true
+}
+
+variable "refresh_instance_class" {
+  description = "The instance class of the cluster to be refreshed/created"
+  type        = string
+  default     = null
+}
+
+variable "run_pre_sql_scripts" {
+  description = "Run pre SQL scripts on old cluster (that will be deleted/restored)"
+  type        = bool
+  default     = false
+}
+
+variable "pre_sql_scripts" {
+  description = "The pre SQL scripts to be executed on old cluster (that will be deleted/restored)"
   type = map(object({
-    SourceCluster            = string
-    SourceClusterArn         = string
-    SourceDBSubnetGroup      = string
-    SourceDBSubnetGroupArn   = string
-    SourceDBSecurityGroupArn = string
-    SourceDBKmsKeyId         = string
-    Cluster                  = string
-    ClusterArn               = string
-    ClusterInstance          = string
-    ClusterInstanceArn       = string
-    ParameterGroup           = string
-    DBSubnetGroup            = string
-    DBSubnetGroupArn         = string
-    DBSecurityGroup          = string
-    DBSecurityGroupArn       = string
-    DbInstanceClass          = string
-    KmsKeyId                 = string
+    path = string
   }))
+}
+variable "old_database_name" {
+  description = "Old database name"
+  type        = string
+}
+
+variable "run_post_sql_scripts" {
+  description = "Run post SQL scripts on new/refreshed cluster"
+  type        = bool
+  default     = false
 }
 
 variable "post_sql_scripts" {
@@ -38,6 +78,25 @@ variable "post_sql_scripts" {
   type = map(object({
     path = string
   }))
+}
+
+variable "rotate_database_users_secrets" {
+  description = "Rotate database users secrets"
+  type        = bool
+  default     = false
+}
+
+variable "database_users_secrets" {
+  description = "Database users secrets IDs"
+  type = map(object({
+    SecretId = string
+  }))
+  default = {}
+}
+
+variable "database_name" {
+  description = "Database name"
+  type        = string
 }
 
 variable "sns_topic_arn" {
@@ -60,4 +119,37 @@ variable "s3_bucket_name" {
   description = "Name of the bucket s3 created within this module or existing S3 name to put lambdas, sql scripts and step function input json files"
   type        = string
   default     = null
+}
+
+variable "encrypted" {
+  description = "New/refresh cluster is encrypted"
+  default     = false
+}
+
+variable "kms_key_id" {
+  description = "KMS key to encrypt new/refresh cluster"
+  type        = string
+  default     = null
+}
+
+variable "master_user_kms_key_id" {
+  description = "KMS key use to encrypt Cluster Maser User credentials"
+  type        = string
+  default     = null
+}
+
+variable "app_name" {
+  description = "Application name"
+  type        = string
+}
+
+variable "env_name" {
+  description = "Environment name"
+  type        = string
+}
+
+variable "tags" {
+  type        = map(string)
+  default     = {}
+  description = "Additional tags (e.g. `map('BusinessUnit`,`XYZ`)"
 }
