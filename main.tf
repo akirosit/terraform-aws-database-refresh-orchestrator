@@ -31,11 +31,11 @@ locals {
     RefreshBucketPrefixOldCluster = "${local.post_sql_scripts_bucket_prefix}-old"
     RotateDatabaseUsersSecrets    = var.rotate_database_users_secrets
     RotationLambdaARN             = aws_lambda_function.functions["SecretsManagerRDSMySQLRotationMultiUser"].arn
-    DatabaselUsersSecrets         = var.database_users_secrets
+    DatabaselUsersSecrets         = jsonencode(var.database_users_secrets)
     RenameCluster                 = var.rename_cluster
     DynamoDBTable                 = aws_dynamodb_table.dynamodbTable.name
     SnsTopicArn                   = local.sns_topic_arn
-    Tags                          = var.tags
+    Tags                          = jsonencode(var.tags)
   }
   lambdas_arn = { for lambda_name, lambda in aws_lambda_function.functions :
     lambda_name => lambda.arn

@@ -88,10 +88,11 @@ variable "rotate_database_users_secrets" {
 
 variable "database_users_secrets" {
   description = "Database users secrets IDs"
-  type = map(object({
+  type = list(object({
+    Username = string
     SecretId = string
   }))
-  default = {}
+  default = []
 }
 
 variable "database_name" {

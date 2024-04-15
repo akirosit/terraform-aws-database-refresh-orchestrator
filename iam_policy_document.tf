@@ -249,4 +249,9 @@ data "aws_iam_policy_document" "step_function_role" {
     ]
     resources = [local.sns_topic_arn]
   }
+  statement {
+    effect    = "Allow"
+    actions   = ["tag:TagResources"]
+    resources = ["*"]
+  }
 }

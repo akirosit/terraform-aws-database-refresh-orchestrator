@@ -1,5 +1,5 @@
 locals {
-  post_sql_scripts_bucket_prefix = "sql-scripts"
+  post_sql_scripts_bucket_prefix = "sql-scripts/${local.current_region}/${var.app_name}-${var.env_name}"
 }
 
 resource "aws_s3_object" "post_sql_scripts" {

@@ -1,7 +1,26 @@
 {
   "Comment": "Database Refresh Orchestrator for Amazon RDS and Amazon Aurora",
-  "StartAt": "RESTORE-CLUSTER",
+  "StartAt": "defaults-values",
   "States": {
+    "defaults-values": {
+      "Type": "Pass",
+      "Next": "merge-tags",
+      "ResultPath": "$.defaultValues",
+      "Parameters": {
+        "Tags": {
+          "refresh": "true",
+          "refresh-cluster.$": "$.SourceDBClusterIdentifier"
+        }
+      }
+    },
+    "merge-tags": {
+      "Type": "Pass",
+      "Next": "RESTORE-CLUSTER",
+      "ResultPath": "$.allTags",
+      "Parameters": {
+        "Tags.$": "States.JsonMerge($.defaultValues.Tags, $.Tags, false)"
+      }
+    },
     "RESTORE-CLUSTER": {
       "Comment": "Restore steps",
       "Type": "Pass",
@@ -63,25 +82,7 @@
           "slowquery"
         ],
         "DeletionProtection": false,
-        "VpcSecurityGroupIds.$": "$.VpcSecurityGroupIds",
-        "Tags": [
-          {
-            "Key": "Application",
-            "Value.$": "$.TagApplication"
-          },
-          {
-            "Key": "Environment",
-            "Value.$": "$.TagEnvironment"
-          },
-          {
-            "Key": "refresh",
-            "Value": "true"
-          },
-          {
-            "Key": "refresh-cluster",
-            "Value.$": "$.SourceDBClusterIdentifier"
-          }
-        ]
+        "VpcSecurityGroupIds.$": "$.VpcSecurityGroupIds"
       },
       "Resource": "arn:aws:states:::aws-sdk:rds:restoreDBClusterFromSnapshot",
       "TimeoutSeconds": 300,
@@ -121,25 +122,7 @@
           "slowquery"
         ],
         "DeletionProtection": false,
-        "VpcSecurityGroupIds.$": "$.VpcSecurityGroupIds",
-        "Tags": [
-          {
-            "Key": "Application",
-            "Value.$": "$.TagApplication"
-          },
-          {
-            "Key": "Environment",
-            "Value.$": "$.TagEnvironment"
-          },
-          {
-            "Key": "refresh",
-            "Value": "true"
-          },
-          {
-            "Key": "refresh-cluster",
-            "Value.$": "$.SourceDBClusterIdentifier"
-          }
-        ]
+        "VpcSecurityGroupIds.$": "$.VpcSecurityGroupIds"
       },
       "Resource": "arn:aws:states:::aws-sdk:rds:restoreDBClusterFromSnapshot",
       "TimeoutSeconds": 300,
@@ -179,25 +162,7 @@
         "CopyTagsToSnapshot": true,
         "DbClusterParameterGroupName.$": "$.DbClusterParameterGroupName",
         "DeletionProtection": false,
-        "VpcSecurityGroupIds.$": "$.VpcSecurityGroupIds",
-        "Tags": [
-          {
-            "Key": "Application",
-            "Value.$": "$.TagApplication"
-          },
-          {
-            "Key": "Environment",
-            "Value.$": "$.TagEnvironment"
-          },
-          {
-            "Key": "refresh",
-            "Value": "true"
-          },
-          {
-            "Key": "refresh-cluster",
-            "Value.$": "$.SourceDBClusterIdentifier"
-          }
-        ]
+        "VpcSecurityGroupIds.$": "$.VpcSecurityGroupIds"
       },
       "ResultPath": "$.restore-result",
       "Next": "wait-restore",
@@ -223,18 +188,41 @@
         "DbClusterIdentifier.$": "$.TmpDbClusterIdentifier"
       },
       "Next": "outcome-restore",
-      "ResultPath": "$.check-status-restore-result"
+      "ResultPath": "$.check-status-restore-result",
+      "ResultSelector": {
+        "DbCluster.$": "States.ArrayGetItem($.DbClusters,0)"
+      }
     },
     "outcome-restore": {
       "Type": "Choice",
       "Choices": [
         {
-          "Variable": "$.check-status-restore-result.DbClusters[0].Status",
+          "Variable": "$.check-status-restore-result.DbCluster.Status",
           "StringEquals": "available",
-          "Next": "RESTORE-INSTANCE"
+          "Next": "tag-restored-cluster"
         }
       ],
       "Default": "wait-restore"
+    },
+    "tag-restored-cluster": {
+      "Type": "Task",
+      "Parameters": {
+        "ResourceARNList.$": "States.Array($['check-status-restore-result']['DbCluster']['DbClusterArn'])",
+        "Tags.$": "$.allTags.Tags"
+      },
+      "Resource": "arn:aws:states:::aws-sdk:resourcegroupstaggingapi:tagResources",
+      "ResultPath": "$.tag-restored-cluster-result",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.Runtime",
+            "States.TaskFailed"
+          ],
+          "ResultPath": "$.tag-restored-cluster-errormsg",
+          "Next": "update-dynamodb-failure"
+        }
+      ],
+      "Next": "RESTORE-INSTANCE"
     },
     "RESTORE-INSTANCE": {
       "Comment": "Restore steps",
@@ -255,25 +243,7 @@
         "DbParameterGroupName.$": "$.DbParameterGroupName",
         "AutoMinorVersionUpgrade": false,
         "PubliclyAccessible": false,
-        "CopyTagsToSnapshot": true,
-        "Tags": [
-          {
-            "Key": "Application",
-            "Value.$": "$.TagApplication"
-          },
-          {
-            "Key": "Environment",
-            "Value.$": "$.TagEnvironment"
-          },
-          {
-            "Key": "refresh",
-            "Value": "true"
-          },
-          {
-            "Key": "refresh-cluster",
-            "Value.$": "$.SourceDBClusterIdentifier"
-          }
-        ]
+        "CopyTagsToSnapshot": true
       },
       "ResultPath": "$.createinstance-result",
       "Next": "wait-create-instance",
@@ -310,7 +280,27 @@
           "Next": "choice-run-scripts-old-cluster"
         }
       ],
-      "Default": "wait-create-instance"
+      "Default": "tag-restored-instance"
+    },
+    "tag-restored-instance": {
+      "Type": "Task",
+      "Parameters": {
+        "ResourceARNList.$": "States.Array($['check-status-create-instance-result']['DbInstances'][0]['DBInstanceArn'])",
+        "Tags.$": "$.allTags.Tags"
+      },
+      "Resource": "arn:aws:states:::aws-sdk:resourcegroupstaggingapi:tagResources",
+      "ResultPath": "$.tag-restored-instance-result",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.Runtime",
+            "States.TaskFailed"
+          ],
+          "ResultPath": "$.tag-restored-instance-errormsg",
+          "Next": "update-dynamodb-failure"
+        }
+      ],
+      "Next": "choice-run-scripts-old-cluster"
     },
     "choice-run-scripts-old-cluster": {
       "Type": "Choice",
@@ -329,7 +319,7 @@
         "Resource": "arn:aws:states:::s3:listObjectsV2",
         "Parameters": {
           "Bucket.$": "$.RefreshBucket",
-          "Prefix.$": "$.RefreshBucketPrefixOldCluster"
+          "Prefix.$": "States.Format('{}/',$.RefreshBucketPrefixOldCluster)"
         }
       },
       "ItemSelector": {
@@ -352,7 +342,7 @@
             "Resource": "arn:aws:states:::lambda:invoke",
             "OutputPath": "$.Payload",
             "Parameters": {
-              "FunctionName": "${awssoldb-RunScriptsMySQL}",
+              "FunctionName": "arn:aws:lambda:eu-west-3:073290922796:function:awssoldb-RunScriptsMySQL-fr-staging",
               "Payload": {
                 "cluster.$": "$.cluster",
                 "dbname.$": "$.dbname",
@@ -623,6 +613,12 @@
       "Catch": [
         {
           "ErrorEquals": [
+            "Rds.DbClusterRoleAlreadyExistsException"
+          ],
+          "Next": "add-role-to-cluster-pg"
+        },
+        {
+          "ErrorEquals": [
             "States.TaskFailed"
           ],
           "ResultPath": "$.renamecluster.errormsg",
@@ -632,7 +628,7 @@
     },
     "add-role-to-cluster-pg": {
       "Type": "Task",
-      "Next": "enable-master-user-secret",
+      "Next": "wait-add-role-to-cluster",
       "Parameters": {
         "DbClusterParameterGroupName.$": "$.DbClusterParameterGroupName",
         "Parameters": [
@@ -654,6 +650,51 @@
           "Next": "update-dynamodb-failure"
         }
       ]
+    },
+    "wait-add-role-to-cluster": {
+      "Type": "Wait",
+      "Seconds": 30,
+      "Next": "check-status-add-role-to-cluster"
+    },
+    "check-status-add-role-to-cluster": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:describeDBClusters",
+      "Next": "outcome-add-role-to-cluster-status",
+      "Parameters": {
+        "DbClusterIdentifier.$": "$.TmpDbClusterIdentifier"
+      },
+      "ResultPath": "$.check-status-add-role-to-cluster-result",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "ResultPath": "$.check-status-add-role-to-cluster-errormsg",
+          "Next": "wait-add-role-to-cluster"
+        }
+      ]
+    },
+    "outcome-add-role-to-cluster-status": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.check-status-add-role-to-cluster-result.DbClusters[0].Status",
+          "StringEquals": "available",
+          "Next": "outcome-add-role-to-cluster-associated-roles-status"
+        }
+      ],
+      "Default": "wait-add-role-to-cluster"
+    },
+    "outcome-add-role-to-cluster-associated-roles-status": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.check-status-add-role-to-cluster-result.DbClusters[0].AssociatedRoles[0].Status",
+          "StringEquals": "ACTIVE",
+          "Next": "enable-master-user-secret"
+        }
+      ],
+      "Default": "wait-add-role-to-cluster"
     },
     "enable-master-user-secret": {
       "Type": "Task",
@@ -739,7 +780,7 @@
         "Resource": "arn:aws:states:::s3:listObjectsV2",
         "Parameters": {
           "Bucket.$": "$.RefreshBucket",
-          "Prefix.$": "$.RefreshBucketPrefix"
+          "Prefix.$": "States.Format('{}/',$.RefreshBucketPrefix)"
         }
       },
       "ItemSelector": {
@@ -762,7 +803,7 @@
             "Resource": "arn:aws:states:::lambda:invoke",
             "OutputPath": "$.Payload",
             "Parameters": {
-              "FunctionName": "${awssoldb-RunScriptsMySQL}",
+              "FunctionName": "arn:aws:lambda:eu-west-3:073290922796:function:awssoldb-RunScriptsMySQL-fr-staging",
               "Payload": {
                 "cluster.$": "$.cluster",
                 "dbname.$": "$.dbname",
@@ -790,7 +831,7 @@
       },
       "Label": "S3objectkeys",
       "ResultPath": "$.run-sql-scripts-result",
-      "Next": "POST-RESTORE-RENAME",
+      "Next": "rotate-database-users-secrets",
       "Catch": [
         {
           "ErrorEquals": [
@@ -800,6 +841,116 @@
           "Next": "update-dynamodb-failure"
         }
       ]
+    },
+    "rotate-database-users-secrets": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.RotateDatabaseUsersSecrets",
+          "BooleanEquals": true,
+          "Next": "map-database-users"
+        }
+      ],
+      "Default": "POST-RESTORE-RENAME"
+    },
+    "map-database-users": {
+      "Type": "Map",
+      "ItemProcessor": {
+        "ProcessorConfig": {
+          "Mode": "INLINE"
+        },
+        "StartAt": "get-database-user-secret-value",
+        "States": {
+          "get-database-user-secret-value": {
+            "Type": "Task",
+            "Parameters": {
+              "SecretId.$": "$.SecretId"
+            },
+            "Resource": "arn:aws:states:::aws-sdk:secretsmanager:getSecretValue",
+            "Next": "format-secret-string",
+            "Catch": [
+              {
+                "ErrorEquals": [
+                  "ResourceNotFoundException"
+                ],
+                "Next": "create-secret"
+              }
+            ],
+            "ResultPath": "$.get-database-user-secret-value-result"
+          },
+          "format-secret-string": {
+            "Type": "Pass",
+            "Parameters": {
+              "SecretString.$": "States.StringToJson($['get-database-user-secret-value-result']['SecretString'])"
+            },
+            "Next": "update-secret",
+            "ResultPath": "$.format-secret-string"
+          },
+          "update-secret": {
+            "Type": "Task",
+            "Parameters": {
+              "SecretId.$": "$.SecretId",
+              "ClientRequestToken.$": "States.UUID()",
+              "SecretString": {
+                "username.$": "$.Username",
+                "password.$": "$.format-secret-string.SecretString.password",
+                "engine.$": "$.Engine",
+                "host.$": "$.Endpoint",
+                "port.$": "$.Port",
+                "masterarn.$": "$.MasterArn",
+                "dbClusterIdentifier.$": "$.DbClusterIdentifier"
+              }
+            },
+            "Resource": "arn:aws:states:::aws-sdk:secretsmanager:putSecretValue",
+            "Next": "rotate-secret",
+            "ResultPath": "$.secret-result"
+          },
+          "create-secret": {
+            "Type": "Task",
+            "Parameters": {
+              "Name.$": "$.SecretId",
+              "ClientRequestToken.$": "States.UUID()",
+              "KmsKeyId.$": "$.KmsKeyId",
+              "SecretString": {
+                "username.$": "$.Username",
+                "password.$": "States.UUID()",
+                "engine.$": "$.Engine",
+                "host.$": "$.Endpoint",
+                "port.$": "$.Port",
+                "masterarn.$": "$.MasterArn",
+                "dbClusterIdentifier.$": "$.DbClusterIdentifier"
+              }
+            },
+            "Resource": "arn:aws:states:::aws-sdk:secretsmanager:createSecret",
+            "Next": "rotate-secret",
+            "ResultPath": "$.secret-result"
+          },
+          "rotate-secret": {
+            "Type": "Task",
+            "End": true,
+            "Parameters": {
+              "SecretId.$": "$.SecretId",
+              "RotationLambdaARN.$": "$.RotationLambdaARN",
+              "RotateImmediately": true
+            },
+            "Resource": "arn:aws:states:::aws-sdk:secretsmanager:rotateSecret",
+            "ResultPath": "$.rotate-secret-result"
+          }
+        }
+      },
+      "Next": "POST-RESTORE-RENAME",
+      "ItemsPath": "$.DatabaselUsersSecrets",
+      "ItemSelector": {
+        "SecretId.$": "$$.Map.Item.Value.SecretId",
+        "Username.$": "$$.Map.Item.Value.Username",
+        "KmsKeyId.$": "$.MasterUserSecretKmsKeyId",
+        "Engine.$": "$.check-status-restore-result.DbCluster.Engine",
+        "Endpoint.$": "$.check-status-restore-result.DbCluster.Endpoint",
+        "Port": "$.check-status-restore-result.DbCluster.Port",
+        "MasterArn.$": "$.enable-master-user-secret-result.DbCluster.MasterUserSecret.SecretArn",
+        "DbClusterIdentifier.$": "$.TmpDbClusterIdentifier"
+      },
+      "ResultPath": "$.map-database-users-result"
     },
     "POST-RESTORE-RENAME": {
       "Comment": "Restore steps",
@@ -936,10 +1087,120 @@
         {
           "Variable": "$.check-status-rename-result.DbInstances[0].DbInstanceStatus",
           "StringEquals": "available",
-          "Next": "update-dynamodb"
+          "Next": "rotate-database-users-secrets-after-rename"
         }
       ],
       "Default": "wait-rename"
+    },
+    "rotate-database-users-secrets-after-rename": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.RotateDatabaseUsersSecrets",
+          "BooleanEquals": true,
+          "Next": "map-database-users-after-rename"
+        }
+      ],
+      "Default": "POST-RESTORE-RENAME"
+    },
+    "map-database-users-after-rename": {
+      "Type": "Map",
+      "ItemProcessor": {
+        "ProcessorConfig": {
+          "Mode": "INLINE"
+        },
+        "StartAt": "get-database-user-secret-value-after-rename",
+        "States": {
+          "get-database-user-secret-value-after-rename": {
+            "Type": "Task",
+            "Parameters": {
+              "SecretId.$": "$.SecretId"
+            },
+            "Resource": "arn:aws:states:::aws-sdk:secretsmanager:getSecretValue",
+            "Next": "format-secret-string-after-rename",
+            "Catch": [
+              {
+                "ErrorEquals": [
+                  "ResourceNotFoundException"
+                ],
+                "Next": "create-secret-after-rename"
+              }
+            ],
+            "ResultPath": "$.get-database-user-secret-value-result"
+          },
+          "format-secret-string-after-rename": {
+            "Type": "Pass",
+            "Parameters": {
+              "SecretString.$": "States.StringToJson($['get-database-user-secret-value-result']['SecretString'])"
+            },
+            "Next": "update-secret-after-rename",
+            "ResultPath": "$.format-secret-string"
+          },
+          "update-secret-after-rename": {
+            "Type": "Task",
+            "Parameters": {
+              "SecretId.$": "$.SecretId",
+              "ClientRequestToken.$": "States.UUID()",
+              "SecretString": {
+                "username.$": "$.Username",
+                "password.$": "$.format-secret-string.SecretString.password",
+                "engine.$": "$.Engine",
+                "host.$": "$.Endpoint",
+                "port.$": "$.Port",
+                "masterarn.$": "$.MasterArn",
+                "dbClusterIdentifier.$": "$.DbClusterIdentifier"
+              }
+            },
+            "Resource": "arn:aws:states:::aws-sdk:secretsmanager:putSecretValue",
+            "Next": "rotate-secret-after-rename",
+            "ResultPath": "$.secret-result"
+          },
+          "create-secret-after-rename": {
+            "Type": "Task",
+            "Parameters": {
+              "Name.$": "$.SecretId",
+              "ClientRequestToken.$": "States.UUID()",
+              "KmsKeyId.$": "$.KmsKeyId",
+              "SecretString": {
+                "username.$": "$.Username",
+                "password.$": "States.UUID()",
+                "engine.$": "$.Engine",
+                "host.$": "$.Endpoint",
+                "port.$": "$.Port",
+                "masterarn.$": "$.MasterArn",
+                "dbClusterIdentifier.$": "$.DbClusterIdentifier"
+              }
+            },
+            "Resource": "arn:aws:states:::aws-sdk:secretsmanager:createSecret",
+            "Next": "rotate-secret-after-rename",
+            "ResultPath": "$.secret-result"
+          },
+          "rotate-secret-after-rename": {
+            "Type": "Task",
+            "End": true,
+            "Parameters": {
+              "SecretId.$": "$.SecretId",
+              "RotationLambdaARN.$": "$.RotationLambdaARN",
+              "RotateImmediately": true
+            },
+            "Resource": "arn:aws:states:::aws-sdk:secretsmanager:rotateSecret",
+            "ResultPath": "$.rotate-secret-result"
+          }
+        }
+      },
+      "Next": "update-dynamodb",
+      "ItemsPath": "$.DatabaselUsersSecrets",
+      "ItemSelector": {
+        "SecretId.$": "$$.Map.Item.Value.SecretId",
+        "Username.$": "$$.Map.Item.Value.Username",
+        "KmsKeyId.$": "$.MasterUserSecretKmsKeyId",
+        "Engine.$": "$.check-status-rename-cluster-result.DbClusters[0].Engine",
+        "Endpoint.$": "$.check-status-rename-cluster-result.DbClusters[0].Endpoint",
+        "Port": "$.check-status-rename-cluster-result.DbClusters[0].Port",
+        "MasterArn.$": "$.enable-master-user-secret-result.DbCluster.MasterUserSecret.SecretArn",
+        "DbClusterIdentifier.$": "$.DbClusterIdentifier"
+      },
+      "ResultPath": "$.map-database-users-result"
     },
     "update-dynamodb": {
       "Type": "Task",

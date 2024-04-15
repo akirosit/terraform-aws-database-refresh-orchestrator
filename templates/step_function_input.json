@@ -29,7 +29,7 @@
   "OldDatabaseName": "${OldDatabaseName}",
   "DatabaseName": "${DatabaseName}",
   "RotateDatabaseUsersSecrets": ${RotateDatabaseUsersSecrets},
-  "DatabaselUsersSecrets": ${DatabaseUsers},
+  "DatabaselUsersSecrets": ${DatabaselUsersSecrets},
   "RotationLambdaARN": "${RotationLambdaARN}",
   "RenameCluster": ${RenameCluster},
   "DynamoDBTableName": "${DynamoDBTable}",
@@ -37,5 +37,6 @@
   "SNSSubject": "Application ${AppName}: restore of the database instance ${SourceCluster} [COMPLETED]",
   "SNSMessage": "The restore of the database instance ${Cluster} from the source ${SourceCluster} has been completed successfully.",
   "SNSSubjectFailure": "Application ${AppName}: restore of the database instance ${Cluster} [FAILED]",
-  "SNSMessageFailure": "The restore of the database instance ${Cluster} from the source ${SourceCluster} has failed."
+  "SNSMessageFailure": "The restore of the database instance ${Cluster} from the source ${SourceCluster} has failed.",
+  "Tags": ${Tags}
 }
