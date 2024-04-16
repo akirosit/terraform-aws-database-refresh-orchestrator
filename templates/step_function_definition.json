@@ -911,7 +911,7 @@
                   "SecretsManager.ResourceNotFoundException"
                 ],
                 "ResultPath": "$.get-database-source-user-secret-value-result",
-                "Next": "create-secret"
+                "Next": "get-database-user-secret-value"
               }
             ],
             "ResultPath": "$.get-database-source-user-secret-value-result"
@@ -921,8 +921,26 @@
             "Parameters": {
               "SecretString.$": "States.StringToJson($['get-database-source-user-secret-value-result']['SecretString'])"
             },
-            "Next": "update-secret",
+            "Next": "get-database-user-secret-value",
             "ResultPath": "$.format-secret-string"
+          },
+          "get-database-user-secret-value": {
+            "Type": "Task",
+            "Parameters": {
+              "SecretId.$": "$.SecretId"
+            },
+            "Resource": "arn:aws:states:::aws-sdk:secretsmanager:getSecretValue",
+            "Next": "update-secret",
+            "Catch": [
+              {
+                "ErrorEquals": [
+                  "SecretsManager.ResourceNotFoundException"
+                ],
+                "ResultPath": "$.get-database-user-secret-value-result",
+                "Next": "create-secret"
+              }
+            ],
+            "ResultPath": "$.get-database-user-secret-value-result"
           },
           "update-secret": {
             "Type": "Task",
@@ -951,7 +969,7 @@
               "KmsKeyId.$": "$.KmsKeyId",
               "SecretString": {
                 "username.$": "$.Username",
-                "password.$": "States.UUID()",
+                "password.$": "$.format-secret-string.SecretString.password",
                 "engine.$": "$.Engine",
                 "host.$": "$.Endpoint",
                 "port.$": "$.Port",
