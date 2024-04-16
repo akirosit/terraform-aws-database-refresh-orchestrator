@@ -33,9 +33,14 @@
           "Variable": "$.RestoreType",
           "StringEquals": "from-snapshot",
           "Next": "get-db-cluster-snapshot-infos"
+        },
+        {
+          "Variable": "$.RestoreType",
+          "StringEquals": "fast-clone",
+          "Next": "perform-restore"
         }
       ],
-      "Default": "perform-restore"
+      "Default": "wait-restore"
     },
     "get-db-cluster-snapshot-infos": {
       "Type": "Task",
@@ -227,7 +232,23 @@
     "RESTORE-INSTANCE": {
       "Comment": "Restore steps",
       "Type": "Pass",
-      "Next": "create-instance"
+      "Next": "choice-restore-type-instance"
+    },
+    "choice-restore-type-instance": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.RestoreType",
+          "StringEquals": "from-snapshot",
+          "Next": "create-instance"
+        },
+        {
+          "Variable": "$.RestoreType",
+          "StringEquals": "fast-clone",
+          "Next": "create-instance"
+        }
+      ],
+      "Default": "wait-create-instance"
     },
     "create-instance": {
       "Type": "Task",
@@ -599,7 +620,23 @@
     "POST-RESTORE-SCRIPTS": {
       "Comment": "Restore steps",
       "Type": "Pass",
-      "Next": "add-role-to-cluster"
+      "Next": "choice-add-role-to-cluster"
+    },
+    "choice-add-role-to-cluster": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.RestoreType",
+          "StringEquals": "from-snapshot",
+          "Next": "add-role-to-cluster"
+        },
+        {
+          "Variable": "$.RestoreType",
+          "StringEquals": "fast-clone",
+          "Next": "add-role-to-cluster"
+        }
+      ],
+      "Default": "wait-add-role-to-cluster"
     },
     "add-role-to-cluster": {
       "Type": "Task",
@@ -731,7 +768,7 @@
     },
     "wait-enable-master-user-secret": {
       "Type": "Wait",
-      "Seconds": 10,
+      "Seconds": 300,
       "Next": "check-status-enable-master-user-secret"
     },
     "check-status-enable-master-user-secret": {
@@ -803,7 +840,7 @@
             "Resource": "arn:aws:states:::lambda:invoke",
             "OutputPath": "$.Payload",
             "Parameters": {
-              "FunctionName": "${awssoldb-RunScriptsMySQL}",
+              "FunctionName": "arn:aws:lambda:eu-west-3:073290922796:function:awssoldb-RunScriptsMySQL-fr-staging",
               "Payload": {
                 "cluster.$": "$.cluster",
                 "dbname.$": "$.dbname",
@@ -873,7 +910,7 @@
                 "ErrorEquals": [
                   "SecretsManager.ResourceNotFoundException"
                 ],
-                "ResultPath":  "$.get-database-source-user-secret-value-result",
+                "ResultPath": "$.get-database-source-user-secret-value-result",
                 "Next": "create-secret"
               }
             ],
@@ -1126,7 +1163,7 @@
                 "ErrorEquals": [
                   "SecretsManager.ResourceNotFoundException"
                 ],
-                "ResultPath":  "$.get-database-user-secret-value-after-rename-result",
+                "ResultPath": "$.get-database-user-secret-value-after-rename-result",
                 "Next": "create-secret-after-rename"
               }
             ],
