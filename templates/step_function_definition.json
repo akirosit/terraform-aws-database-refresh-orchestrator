@@ -855,9 +855,10 @@
                   "Lambda.ServiceException",
                   "Lambda.AWSLambdaException",
                   "Lambda.SdkClientException",
-                  "Lambda.TooManyRequestsException"
+                  "Lambda.TooManyRequestsException",
+                  "Lambda.Unknown"
                 ],
-                "IntervalSeconds": 1,
+                "IntervalSeconds": 300,
                 "MaxAttempts": 3,
                 "BackoffRate": 2
               }
