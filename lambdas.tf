@@ -2,15 +2,16 @@
 
 locals {
   python_version_short = "3.9"
-  python_version_long = "python${local.python_version_short}"
+  python_version_long  = "python${local.python_version_short}"
   lambda_layers = [
     "pymysql",
     "cryptography"
   ]
   lambda_functions = {
     "awssoldb-RunScriptsMySQL" = {
-      type = "file"
-      path = "${local.lambdas_path}/awssoldb-RunScriptsMySQL.py"
+      type    = "file"
+      path    = "${local.lambdas_path}/awssoldb-RunScriptsMySQL.py"
+      timeout = 900
     }
     "SecretsManagerRDSMySQLRotationMultiUser" = {
       type       = "github_file"
@@ -39,7 +40,7 @@ locals {
     }
   }
   lambda_functions_layers = {
-    "awssoldb-RunScriptsMySQL"                = [aws_lambda_layer_version.layer["pymysql"].arn]
+    "awssoldb-RunScriptsMySQL" = [aws_lambda_layer_version.layer["pymysql"].arn]
     "SecretsManagerRDSMySQLRotationMultiUser" = [
       aws_lambda_layer_version.layer["pymysql"].arn,
       aws_lambda_layer_version.layer["cryptography"].arn
@@ -48,20 +49,20 @@ locals {
   lambda_functions_allow_from_externals = flatten([
     for lambda_name, lambda in local.lambda_functions : [
       for permission_name, permission in lookup(lambda, "permissions", {}) : {
-        name = permission_name
-        function_name   = aws_lambda_function.functions[lambda_name].function_name
-        action          = permission.action
-        principal       = permission.principal
+        name          = permission_name
+        function_name = aws_lambda_function.functions[lambda_name].function_name
+        action        = permission.action
+        principal     = permission.principal
       }
   ]])
 }
 
 resource "aws_lambda_layer_version" "layer" {
-  for_each            = data.archive_file.lambda_layers
-  layer_name          = each.key
-  filename            = each.value.output_path
-  source_code_hash    = each.value.output_base64sha256
-  compatible_runtimes = [local.python_version_long]
+  for_each                 = data.archive_file.lambda_layers
+  layer_name               = each.key
+  filename                 = each.value.output_path
+  source_code_hash         = each.value.output_base64sha256
+  compatible_runtimes      = [local.python_version_long]
   compatible_architectures = ["arm64"]
 }
 
@@ -74,9 +75,9 @@ resource "aws_lambda_function" "functions" {
   source_code_hash = aws_s3_object.lambda_functions_hash[each.key].content
   handler          = "${each.key}.lambda_handler"
   runtime          = local.python_version_long
-  architectures = ["arm64"]
+  architectures    = ["arm64"]
   layers           = lookup(local.lambda_functions_layers, each.key, [])
-  timeout          = 300
+  timeout          = lookup(local.lambda_functions[each.key], "timeout", 300)
   memory_size      = 320
   vpc_config {
     security_group_ids = [

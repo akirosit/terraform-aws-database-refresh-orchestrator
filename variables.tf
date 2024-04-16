@@ -89,8 +89,9 @@ variable "rotate_database_users_secrets" {
 variable "database_users_secrets" {
   description = "Database users secrets IDs"
   type = list(object({
-    Username = string
-    SecretId = string
+    Username       = string
+    SecretId       = string
+    SourceSecretId = string
   }))
   default = []
 }

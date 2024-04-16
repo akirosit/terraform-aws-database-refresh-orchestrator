@@ -277,15 +277,15 @@
         {
           "Variable": "$.check-status-create-instance-result.DbInstances[0].DbInstanceStatus",
           "StringEquals": "available",
-          "Next": "choice-run-scripts-old-cluster"
+          "Next": "tag-restored-instance"
         }
       ],
-      "Default": "tag-restored-instance"
+      "Default": "wait-create-instance"
     },
     "tag-restored-instance": {
       "Type": "Task",
       "Parameters": {
-        "ResourceARNList.$": "States.Array($['check-status-create-instance-result']['DbInstances'][0]['DBInstanceArn'])",
+        "ResourceARNList.$": "States.Array($['check-status-create-instance-result']['DbInstances'][0]['DbInstanceArn'])",
         "Tags.$": "$.allTags.Tags"
       },
       "Resource": "arn:aws:states:::aws-sdk:resourcegroupstaggingapi:tagResources",
@@ -761,7 +761,7 @@
           "Next": "choice-run-scripts"
         }
       ],
-      "Default": "wait-enable-master-user-secret"
+      "Default": "rotate-database-users-secrets"
     },
     "choice-run-scripts": {
       "Type": "Choice",
@@ -803,7 +803,7 @@
             "Resource": "arn:aws:states:::lambda:invoke",
             "OutputPath": "$.Payload",
             "Parameters": {
-              "FunctionName": "arn:aws:lambda:eu-west-3:073290922796:function:awssoldb-RunScriptsMySQL-fr-staging",
+              "FunctionName": "${awssoldb-RunScriptsMySQL}",
               "Payload": {
                 "cluster.$": "$.cluster",
                 "dbname.$": "$.dbname",
@@ -859,29 +859,30 @@
         "ProcessorConfig": {
           "Mode": "INLINE"
         },
-        "StartAt": "get-database-user-secret-value",
+        "StartAt": "get-database-source-user-secret-value",
         "States": {
-          "get-database-user-secret-value": {
+          "get-database-source-user-secret-value": {
             "Type": "Task",
             "Parameters": {
-              "SecretId.$": "$.SecretId"
+              "SecretId.$": "$.SourceSecretId"
             },
             "Resource": "arn:aws:states:::aws-sdk:secretsmanager:getSecretValue",
             "Next": "format-secret-string",
             "Catch": [
               {
                 "ErrorEquals": [
-                  "ResourceNotFoundException"
+                  "SecretsManager.ResourceNotFoundException"
                 ],
+                "ResultPath":  "$.get-database-source-user-secret-value-result",
                 "Next": "create-secret"
               }
             ],
-            "ResultPath": "$.get-database-user-secret-value-result"
+            "ResultPath": "$.get-database-source-user-secret-value-result"
           },
           "format-secret-string": {
             "Type": "Pass",
             "Parameters": {
-              "SecretString.$": "States.StringToJson($['get-database-user-secret-value-result']['SecretString'])"
+              "SecretString.$": "States.StringToJson($['get-database-source-user-secret-value-result']['SecretString'])"
             },
             "Next": "update-secret",
             "ResultPath": "$.format-secret-string"
@@ -941,14 +942,16 @@
       "Next": "POST-RESTORE-RENAME",
       "ItemsPath": "$.DatabaselUsersSecrets",
       "ItemSelector": {
+        "SourceSecretId.$": "$$.Map.Item.Value.SourceSecretId",
         "SecretId.$": "$$.Map.Item.Value.SecretId",
         "Username.$": "$$.Map.Item.Value.Username",
         "KmsKeyId.$": "$.MasterUserSecretKmsKeyId",
         "Engine.$": "$.check-status-restore-result.DbCluster.Engine",
         "Endpoint.$": "$.check-status-restore-result.DbCluster.Endpoint",
-        "Port": "$.check-status-restore-result.DbCluster.Port",
+        "Port.$": "$.check-status-restore-result.DbCluster.Port",
         "MasterArn.$": "$.enable-master-user-secret-result.DbCluster.MasterUserSecret.SecretArn",
-        "DbClusterIdentifier.$": "$.TmpDbClusterIdentifier"
+        "DbClusterIdentifier.$": "$.TmpDbClusterIdentifier",
+        "RotationLambdaARN.$": "$.RotationLambdaARN"
       },
       "ResultPath": "$.map-database-users-result"
     },
@@ -1121,12 +1124,13 @@
             "Catch": [
               {
                 "ErrorEquals": [
-                  "ResourceNotFoundException"
+                  "SecretsManager.ResourceNotFoundException"
                 ],
+                "ResultPath":  "$.get-database-user-secret-value-after-rename-result",
                 "Next": "create-secret-after-rename"
               }
             ],
-            "ResultPath": "$.get-database-user-secret-value-result"
+            "ResultPath": "$.get-database-user-secret-value-after-rename-result"
           },
           "format-secret-string-after-rename": {
             "Type": "Pass",
@@ -1196,9 +1200,10 @@
         "KmsKeyId.$": "$.MasterUserSecretKmsKeyId",
         "Engine.$": "$.check-status-rename-cluster-result.DbClusters[0].Engine",
         "Endpoint.$": "$.check-status-rename-cluster-result.DbClusters[0].Endpoint",
-        "Port": "$.check-status-rename-cluster-result.DbClusters[0].Port",
+        "Port.$": "$.check-status-rename-cluster-result.DbClusters[0].Port",
         "MasterArn.$": "$.enable-master-user-secret-result.DbCluster.MasterUserSecret.SecretArn",
-        "DbClusterIdentifier.$": "$.DbClusterIdentifier"
+        "DbClusterIdentifier.$": "$.DbClusterIdentifier",
+        "RotationLambdaARN.$": "$.RotationLambdaARN"
       },
       "ResultPath": "$.map-database-users-result"
     },
