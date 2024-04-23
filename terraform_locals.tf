@@ -74,7 +74,7 @@ locals {
   cluster_security_group_arn     = local.source_cluster_security_group_arn # var.refresh_cluster_already_exist ? data.aws_security_group.refresh_cluster[*].arn : 
   cluster_db_subnet_group_name   = var.refresh_cluster_already_exist ? data.aws_rds_cluster.refresh_cluster[*].db_subnet_group_name : [local.source_cluster_db_subnet_group_name]
   cluster_db_subnet_group_arn    = var.refresh_cluster_already_exist ? data.aws_db_subnet_group.refresh_cluster[*].arn : local.source_cluster_db_subnet_group_arn
-  cluster_master_user_secret_arn = var.refresh_cluster_already_exist ? data.aws_rds_cluster.refresh_cluster[0].master_user_secret[0].secret_arn : null
+  cluster_master_user_secret_arn = var.refresh_cluster_already_exist ? data.aws_rds_cluster.refresh_cluster[0].master_user_secret[0].secret_arn : ""
   db_instance_class              = var.refresh_instance_class == null ? data.aws_db_instance.source_cluster[0].db_instance_class : var.refresh_instance_class
   instance_databases             = var.refresh_cluster_already_exist ? data.aws_rds_cluster.refresh_cluster[0].cluster_members : ["${var.refresh_cluster}-1"]
   instance_databases_arn = [

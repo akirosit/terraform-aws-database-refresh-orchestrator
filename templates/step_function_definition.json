@@ -350,7 +350,7 @@
         "bucketname.$": "$.RefreshBucket",
         "key.$": "$$.Map.Item.Value.Key"
       },
-      "MaxConcurrency": 1000,
+      "MaxConcurrency": 1,
       "ItemProcessor": {
         "ProcessorConfig": {
           "Mode": "DISTRIBUTED",
@@ -363,7 +363,7 @@
             "Resource": "arn:aws:states:::lambda:invoke",
             "OutputPath": "$.Payload",
             "Parameters": {
-              "FunctionName": "arn:aws:lambda:eu-west-3:073290922796:function:awssoldb-RunScriptsMySQL-fr-staging",
+              "FunctionName": "${awssoldb-RunScriptsMySQL}",
               "Payload": {
                 "cluster.$": "$.cluster",
                 "dbname.$": "$.dbname",
@@ -827,7 +827,7 @@
         "bucketname.$": "$.RefreshBucket",
         "key.$": "$$.Map.Item.Value.Key"
       },
-      "MaxConcurrency": 1000,
+      "MaxConcurrency": 1,
       "ItemProcessor": {
         "ProcessorConfig": {
           "Mode": "DISTRIBUTED",
@@ -840,7 +840,7 @@
             "Resource": "arn:aws:states:::lambda:invoke",
             "OutputPath": "$.Payload",
             "Parameters": {
-              "FunctionName": "arn:aws:lambda:eu-west-3:073290922796:function:awssoldb-RunScriptsMySQL-fr-staging",
+              "FunctionName": "${awssoldb-RunScriptsMySQL}",
               "Payload": {
                 "cluster.$": "$.cluster",
                 "dbname.$": "$.dbname",

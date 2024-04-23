@@ -61,7 +61,7 @@ resource "aws_sfn_state_machine" "refresh_env" {
 
 resource "local_file" "step_function_json_input" {
   content  = templatefile("${path.module}/templates/step_function_input.json", local.step_function_input)
-  filename = "step_funcion_input/${local.current_region}/db-${var.app_name}-${var.env_name}.json"
+  filename = "step_function_input/${local.current_region}/db-${var.app_name}-${var.env_name}.json"
 }
 
 resource "aws_s3_object" "step_function_json_input" {
