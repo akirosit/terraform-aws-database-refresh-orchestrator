@@ -641,8 +641,6 @@
       "Parameters": {
         "DbClusterIdentifier.$": "$.DbClusterIdentifier",
         "NewDBClusterIdentifier.$": "$.OldDbClusterIdentifier",
-        "ManageMasterUserPassword": true,
-        "MasterUserSecretKmsKeyId.$": "$.MasterUserSecretKmsKeyId",
         "ApplyImmediately": true
       },
       "ResultPath": "$.rename-old-cluster-result",
@@ -742,7 +740,7 @@
             "States.TaskFailed"
           ],
           "ResultPath": "$.check-status-old-rename-errormsg",
-          "Next": "wait-rename"
+          "Next": "wait-old-rename"
         }
       ]
     },
@@ -752,10 +750,18 @@
         {
           "Variable": "$.check-status-old-rename-result.DbInstances[0].DbInstanceStatus",
           "StringEquals": "available",
-          "Next": "POST-RESTORE-SCRIPTS"
+          "Next": "stop-old-db-cluster"
         }
       ],
       "Default": "wait-old-rename"
+    },
+    "stop-old-db-cluster": {
+      "Type": "Task",
+      "Next": "POST-RESTORE-SCRIPTS",
+      "Parameters": {
+        "DbClusterIdentifier.$": "$.OldDbClusterIdentifier"
+      },
+      "Resource": "arn:aws:states:::aws-sdk:rds:stopDBCluster"
     },
     "POST-RESTORE-SCRIPTS": {
       "Comment": "Restore steps",
@@ -1175,8 +1181,6 @@
       "Parameters": {
         "DbClusterIdentifier.$": "$.TmpDbClusterIdentifier",
         "NewDBClusterIdentifier.$": "$.DbClusterIdentifier",
-        "ManageMasterUserPassword": true,
-        "MasterUserSecretKmsKeyId.$": "$.MasterUserSecretKmsKeyId",
         "ApplyImmediately": true
       },
       "ResultPath": "$.rename-cluster-result",
