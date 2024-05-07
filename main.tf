@@ -12,6 +12,7 @@ locals {
     ClusterParameterGroup         = local.cluster_parameter_group
     RestoreType                   = var.restore_type
     DeleteOldCluster              = var.delete_old_cluster
+    RenameOldCluster              = var.rename_old_cluster
     ParameterGroup                = element(tolist(local.instance_parameter_group), 0)
     DBSubnetGroup                 = element(tolist(local.cluster_db_subnet_group_name), 0)
     DBSecurityGroup               = element(tolist(local.cluster_security_group_ids), 1)

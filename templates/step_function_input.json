@@ -5,8 +5,10 @@
   "SourceDBClusterIdentifier": "${SourceCluster}",
   "DbClusterIdentifier": "${Cluster}",
   "TmpDbClusterIdentifier": "${Cluster}-restore",
+  "OldDbClusterIdentifier": "${Cluster}-old",
   "DbInstanceIdentifier": "${ClusterInstance}",
   "TmpDbInstanceIdentifier": "${ClusterInstance}-restore",
+  "OldDbInstanceIdentifier": "${ClusterInstance}-old",
   "RestoreType": "${RestoreType}",
   "DbSubnetGroupName": "${DBSubnetGroup}",
   "DbInstanceClass": "${DbInstanceClass}",
@@ -16,6 +18,7 @@
     "${DBSecurityGroup}"
   ],
   "DeleteOldCluster": ${DeleteOldCluster},
+  "RenameOldCluster": ${RenameOldCluster},
   "Encrypted": "${Encrypted}",
   "KmsKeyId": "${KmsKeyId}",
   "MasterUserSecretKmsKeyId": "${MasterUserSecretKmsKeyId}",

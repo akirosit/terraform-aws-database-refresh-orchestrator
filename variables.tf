@@ -27,6 +27,12 @@ variable "delete_old_cluster" {
   default     = false
 }
 
+variable "rename_old_cluster" {
+  description = "Rename old cluster after refresh"
+  type        = bool
+  default     = false
+}
+
 variable "rename_cluster" {
   description = "Rename the cluster after refresh"
   type        = bool

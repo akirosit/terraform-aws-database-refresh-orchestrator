@@ -411,6 +411,17 @@
           "Next": "DELETE-OLD-CLUSTER"
         }
       ],
+      "Default": "choice-rename-old-cluster"
+    },
+    "choice-rename-old-cluster": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.RenameOldCluster",
+          "BooleanEquals": true,
+          "Next": "RENAME-OLD-CLUSTER"
+        }
+      ],
       "Default": "POST-RESTORE-SCRIPTS"
     },
     "DELETE-OLD-CLUSTER": {
@@ -616,6 +627,135 @@
           "Next": "POST-RESTORE-SCRIPTS"
         }
       ]
+    },
+    "RENAME-OLD-CLUSTER": {
+      "Comment": "Post-restore steps",
+      "Type": "Pass",
+      "Next": "rename-old-cluster"
+    },
+    "rename-old-cluster": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:modifyDBCluster",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "Parameters": {
+        "DbClusterIdentifier.$": "$.DbClusterIdentifier",
+        "NewDBClusterIdentifier.$": "$.OldDbClusterIdentifier",
+        "ManageMasterUserPassword": true,
+        "MasterUserSecretKmsKeyId.$": "$.MasterUserSecretKmsKeyId",
+        "ApplyImmediately": true
+      },
+      "ResultPath": "$.rename-old-cluster-result",
+      "Next": "wait-rename-old-cluster",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "An error occurred (InvalidDBClusterStateFault) when calling the ModifyDBCluster operation: DB cluster is not available for modification with status backing-up"
+          ],
+          "IntervalSeconds": 60,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "ResultPath": "$.rename-old-cluster.errormsg",
+          "Next": "update-dynamodb-failure"
+        }
+      ]
+    },
+    "wait-rename-old-cluster": {
+      "Type": "Wait",
+      "Seconds": 10,
+      "Next": "check-status-rename-old-cluster"
+    },
+    "check-status-rename-old-cluster": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:describeDBClusters",
+      "Next": "outcome-rename-old-cluster",
+      "Parameters": {
+        "DbClusterIdentifier.$": "$.OldDbClusterIdentifier"
+      },
+      "ResultPath": "$.check-status-rename-old-cluster-result",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "ResultPath": "$.check-status-rename-old-cluster-errormsg",
+          "Next": "wait-rename-old-cluster"
+        }
+      ]
+    },
+    "outcome-rename-old-cluster": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.check-status-rename-old-cluster-result.DbClusters[0].Status",
+          "StringEquals": "available",
+          "Next": "rename-old-database"
+        }
+      ],
+      "Default": "wait-rename-old-cluster"
+    },
+    "rename-old-database": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:modifyDBInstance",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "Parameters": {
+        "DbInstanceIdentifier.$": "$.DbInstanceIdentifier",
+        "NewDBInstanceIdentifier.$": "$.OldDbInstanceIdentifier",
+        "ApplyImmediately": true
+      },
+      "ResultPath": "$.rename-old-result",
+      "Next": "wait-old-rename",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "ResultPath": "$.rename-old.errormsg",
+          "Next": "update-dynamodb-failure"
+        }
+      ]
+    },
+    "wait-old-rename": {
+      "Type": "Wait",
+      "Seconds": 10,
+      "Next": "check-status-old-rename"
+    },
+    "check-status-old-rename": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:describeDBInstances",
+      "Next": "outcome-old-rename",
+      "Parameters": {
+        "DbInstanceIdentifier.$": "$.OldDbInstanceIdentifier"
+      },
+      "ResultPath": "$.check-status-old-rename-result",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "ResultPath": "$.check-status-old-rename-errormsg",
+          "Next": "wait-rename"
+        }
+      ]
+    },
+    "outcome-old-rename": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.check-status-old-rename-result.DbInstances[0].DbInstanceStatus",
+          "StringEquals": "available",
+          "Next": "POST-RESTORE-SCRIPTS"
+        }
+      ],
+      "Default": "wait-old-rename"
     },
     "POST-RESTORE-SCRIPTS": {
       "Comment": "Restore steps",
