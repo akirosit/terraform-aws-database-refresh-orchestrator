@@ -178,6 +178,7 @@ data "aws_iam_policy_document" "step_function_role" {
       "rds:ModifyDBCluster",
       "rds:CreateDBInstanceReadReplica",
       "rds:RestoreDBInstanceToPointInTime",
+      "rds:StopDBCluster",
       "rds:StopDBInstance",
       "rds:AddRoleToDBCluster",
       "rds:ModifyDBClusterParameterGroup",
