@@ -761,7 +761,17 @@
       "Parameters": {
         "DbClusterIdentifier.$": "$.OldDbClusterIdentifier"
       },
-      "Resource": "arn:aws:states:::aws-sdk:rds:stopDBCluster"
+      "Resource": "arn:aws:states:::aws-sdk:rds:stopDBCluster",
+      "ResultPath": "$.stop-old-db-cluster-result",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "ResultPath": "$.stop-old-db-cluster-errormsg",
+          "Next": "update-dynamodb-failure"
+        }
+      ]
     },
     "POST-RESTORE-SCRIPTS": {
       "Comment": "Restore steps",
