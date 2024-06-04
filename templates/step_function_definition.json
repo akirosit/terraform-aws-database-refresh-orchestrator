@@ -1111,7 +1111,7 @@
                 "host.$": "$.Endpoint",
                 "port.$": "$.Port",
                 "dbname.$": "$.DatabaseName",
-                "jdbcUrl.$": "States.Format('jdbc:mysql://{}/{}}?{}', $.Endpoint, $.DatabaseName, $.jdbcOptions)",
+                "jdbcUrl.$": "States.Format('jdbc:mysql://{}/{}?{}', $.Endpoint, $.DatabaseName, $.jdbcOptions)",
                 "masterarn.$": "$.MasterArn",
                 "dbClusterIdentifier.$": "$.DbClusterIdentifier"
               }
@@ -1133,7 +1133,7 @@
                 "host.$": "$.Endpoint",
                 "port.$": "$.Port",
                 "dbname.$": "$.DatabaseName",
-                "jdbcUrl.$": "States.Format('jdbc:mysql://{}/{}}?{}', $.Endpoint, $.DatabaseName, $.jdbcOptions)",
+                "jdbcUrl.$": "States.Format('jdbc:mysql://{}/{}?{}', $.Endpoint, $.DatabaseName, $.jdbcOptions)",
                 "masterarn.$": "$.MasterArn",
                 "dbClusterIdentifier.$": "$.DbClusterIdentifier"
               }
@@ -1368,7 +1368,7 @@
                 "host.$": "$.Endpoint",
                 "port.$": "$.Port",
                 "dbname.$": "$.DatabaseName",
-                "jdbcUrl.$": "States.Format('jdbc:mysql://{}/{}}?{}', $.Endpoint, $.DatabaseName, $.jdbcOptions)",
+                "jdbcUrl.$": "States.Format('jdbc:mysql://{}/{}?{}', $.Endpoint, $.DatabaseName, $.jdbcOptions)",
                 "masterarn.$": "$.MasterArn",
                 "dbClusterIdentifier.$": "$.DbClusterIdentifier"
               }
@@ -1390,7 +1390,7 @@
                 "host.$": "$.Endpoint",
                 "port.$": "$.Port",
                 "dbname.$": "$.DatabaseName",
-                "jdbcUrl.$": "States.Format('jdbc:mysql://{}/{}}?{}', $.Endpoint, $.DatabaseName, $.jdbcOptions)",
+                "jdbcUrl.$": "States.Format('jdbc:mysql://{}/{}?{}', $.Endpoint, $.DatabaseName, $.jdbcOptions)",
                 "masterarn.$": "$.MasterArn",
                 "dbClusterIdentifier.$": "$.DbClusterIdentifier"
               }

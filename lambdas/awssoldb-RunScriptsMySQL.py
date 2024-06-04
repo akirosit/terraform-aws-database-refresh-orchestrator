@@ -115,6 +115,7 @@ def lambda_handler(event, context):
                     logger.info("File opened")
                     content = response["Body"].read().decode("utf-8")
                     cur.execute(content)
+                    logger.info("rowcount: {} message: {}".format(cur.rowcount, cur._result.message))
                     for row in cur.fetchall():
                         data += str(row) + "\n"
                 logger.info(data)
