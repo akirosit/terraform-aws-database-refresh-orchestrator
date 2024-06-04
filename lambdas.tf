@@ -59,7 +59,7 @@ locals {
 
 resource "aws_lambda_layer_version" "layer" {
   for_each                 = data.archive_file.lambda_layers
-  layer_name               = each.key
+  layer_name               = "${var.app_name}-${var.env_name}-${each.key}"
   filename                 = each.value.output_path
   source_code_hash         = each.value.output_base64sha256
   compatible_runtimes      = [local.python_version_long]
