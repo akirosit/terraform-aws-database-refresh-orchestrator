@@ -112,6 +112,15 @@ data "aws_iam_policy_document" "assume_from_step_functions" {
   }
 }
 
+data "aws_iam_policy_document" "step_function_assume_eks_role" {
+  count = var.eks_role_arn != "" ? 1 : 0
+  statement {
+    effect    = "Allow"
+    actions   = ["sts:AssumeRole"]
+    resources = [var.eks_role_arn]
+  }
+}
+
 data "aws_iam_policy_document" "step_function_role" {
   statement {
     effect = "Allow"

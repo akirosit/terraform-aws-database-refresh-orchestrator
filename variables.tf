@@ -107,6 +107,57 @@ variable "database_name" {
   type        = string
 }
 
+variable "run_mysqldump_old_cluster" {
+  description = "Run MySQL dump on old cluster"
+  type        = bool
+  default     = false
+}
+
+variable "mysql_tables" {
+  description = "MySQL Tables to dump/restore"
+  type = list(object({
+    Datbase = string
+    Table   = string
+  }))
+  default = []
+}
+
+variable "eks_role_arn" {
+  description = "EKS role ARN assumed by Step Function to run mysqldump/restore job"
+  type        = string
+  default     = ""
+}
+
+variable "eks_cluster_name" {
+  description = "EKS cluster name"
+  type        = string
+  default     = ""
+}
+
+variable "eks_namespace" {
+  description = "EKS namespace"
+  type        = string
+  default     = ""
+}
+
+variable "eks_node_selector" {
+  description = "EKS node selector"
+  type        = string
+  default     = ""
+}
+
+variable "efs_name" {
+  description = "EFS name - PV claim name to store dump files"
+  type        = string
+  default     = ""
+}
+
+variable "run_mysqlimport_cluster" {
+  description = "Run MySQL import on new/refreshed cluster"
+  type        = bool
+  default     = false
+}
+
 variable "sns_topic_arn" {
   description = "Existing SNS topic ARN to send notifications"
   type        = string

@@ -25,6 +25,14 @@ locals {
     RefreshBucketPrefix           = local.post_sql_scripts_bucket_prefix
     OldMasterUserSecretArn        = local.cluster_master_user_secret_arn
     RDSRoleArn                    = aws_iam_role.rds.arn
+    RunMysqlDumpOldCluster        = var.run_mysqldump_old_cluster
+    EfsName                       = var.efs_name
+    EksRoleArn                    = var.eks_role_arn
+    EksClusterName                = var.eks_cluster_name
+    EksNamespace                  = var.eks_namespace
+    NodeSelector                  = var.eks_node_selector
+    RunMysqlImportCluster         = var.run_mysqlimport_cluster
+    MysqlTables                   = var.mysql_tables
     RunSqlScripts                 = var.run_post_sql_scripts
     RunSqlScriptsOldCluster       = var.run_pre_sql_scripts
     OldDatabaseName               = var.old_database_name

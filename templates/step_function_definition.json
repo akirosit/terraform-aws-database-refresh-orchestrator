@@ -4,20 +4,24 @@
   "States": {
     "defaults-values": {
       "Type": "Pass",
-      "Next": "merge-tags",
+      "Next": "compute-values",
       "ResultPath": "$.defaultValues",
       "Parameters": {
+        "YYYY.$": "States.ArrayGetItem(States.StringSplit(States.ArrayGetItem(States.StringSplit($$.Execution.StartTime, 'T'), 0), '-'), 0)",
+        "MM.$": "States.ArrayGetItem(States.StringSplit(States.ArrayGetItem(States.StringSplit($$.Execution.StartTime, 'T'),0), '-'), 1)",
+        "DD.$": "States.ArrayGetItem(States.StringSplit(States.ArrayGetItem(States.StringSplit($$.Execution.StartTime, 'T'),0), '-'), 2)",
         "Tags": {
           "refresh": "true",
           "refresh-cluster.$": "$.SourceDBClusterIdentifier"
         }
       }
     },
-    "merge-tags": {
+    "compute-values": {
       "Type": "Pass",
       "Next": "RESTORE-CLUSTER",
-      "ResultPath": "$.allTags",
+      "ResultPath": "$.computeValues",
       "Parameters": {
+        "Date.$": "States.Format('{}{}{}',$.defaultValues.YYYY,$.defaultValues.MM, $.defaultValues.DD)",
         "Tags.$": "States.JsonMerge($.defaultValues.Tags, $.Tags, false)"
       }
     },
@@ -213,7 +217,7 @@
       "Type": "Task",
       "Parameters": {
         "ResourceARNList.$": "States.Array($['check-status-restore-result']['DbCluster']['DbClusterArn'])",
-        "Tags.$": "$.allTags.Tags"
+        "Tags.$": "$.computeValues.Tags"
       },
       "Resource": "arn:aws:states:::aws-sdk:resourcegroupstaggingapi:tagResources",
       "ResultPath": "$.tag-restored-cluster-result",
@@ -307,7 +311,7 @@
       "Type": "Task",
       "Parameters": {
         "ResourceARNList.$": "States.Array($['check-status-create-instance-result']['DbInstances'][0]['DbInstanceArn'])",
-        "Tags.$": "$.allTags.Tags"
+        "Tags.$": "$.computeValues.Tags"
       },
       "Resource": "arn:aws:states:::aws-sdk:resourcegroupstaggingapi:tagResources",
       "ResultPath": "$.tag-restored-instance-result",
@@ -321,7 +325,210 @@
           "Next": "update-dynamodb-failure"
         }
       ],
-      "Next": "choice-run-scripts-old-cluster"
+      "Next": "choice-run-mysqldump-cluster"
+    },
+    "choice-run-mysqldump-cluster": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.RunMysqlDumpOldCluster",
+          "BooleanEquals": true,
+          "Next": "get-old-cluster-endpoint"
+        }
+      ],
+      "Default": "choice-delete-old-cluster"
+    },
+    "get-old-cluster-endpoint": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:describeDBClusters",
+      "Next": "get-old-database-master-user-secret-value",
+      "Parameters": {
+        "DbClusterIdentifier.$": "$.DbClusterIdentifier"
+      },
+      "ResultSelector": {
+        "Endpoint.$": "$.DbClusters[0].Endpoint"
+      },
+      "ResultPath": "$.get-old-cluster-endpoint-result",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "ResultPath": "$.get-old-cluster-endpoint.errormsg",
+          "Next": "update-dynamodb-failure"
+        }
+      ]
+    },
+    "get-old-database-master-user-secret-value": {
+      "Type": "Task",
+      "Parameters": {
+        "SecretId.$": "$.OldMasterUserSecretArn"
+      },
+      "Resource": "arn:aws:states:::aws-sdk:secretsmanager:getSecretValue",
+      "Next": "format-old-master-user-secret-string",
+      "ResultPath": "$.get-old-database-master-user-secret-value-result"
+    },
+    "format-old-master-user-secret-string": {
+      "Type": "Pass",
+      "Parameters": {
+        "SecretString.$": "States.StringToJson($['get-old-database-master-user-secret-value-result']['SecretString'])"
+      },
+      "Next": "get-cluster-info",
+      "ResultPath": "$.format-old-master-user-secret-string"
+    },
+    "get-cluster-info": {
+      "Type": "Task",
+      "Next": "map-eks-mysqldump-job",
+      "Credentials": {
+        "RoleArn.$": "$.EksRoleArn"
+      },
+      "Parameters": {
+        "Name.$": "$.EksClusterName"
+      },
+      "Resource": "arn:aws:states:::aws-sdk:eks:describeCluster",
+      "ResultPath": "$.Eks"
+    },
+    "map-eks-mysqldump-job": {
+      "Type": "Map",
+      "ItemsPath": "$.MysqlTables",
+      "ItemSelector": {
+        "Name.$": "$$.Map.Item.Index",
+        "Endpoint.$": "$.get-old-cluster-endpoint-result.Endpoint",
+        "Username.$": "$.format-old-master-user-secret-string.SecretString.username",
+        "Password.$": "$.format-old-master-user-secret-string.SecretString.password",
+        "Database.$": "$$.Map.Item.Value.Database",
+        "Table.$": "$$.Map.Item.Value.Table",
+        "Namespace.$": "$.EksNamespace",
+        "NodeSelector.$": "$.NodeSelector",
+        "EfsName.$": "$.EfsName",
+        "EksRoleArn.$": "$.EksRoleArn",
+        "Eks.$": "$.Eks",
+        "Date.$": "$.computeValues.Date"
+      },
+      "ItemProcessor": {
+        "ProcessorConfig": {
+          "Mode": "INLINE"
+        },
+        "StartAt": "run-eks-mysqldump-job",
+        "States": {
+          "run-eks-mysqldump-job": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::eks:runJob.sync",
+            "Parameters": {
+              "ClusterName.$": "$.Eks.Cluster.Name",
+              "CertificateAuthority.$": "$.Eks.Cluster.CertificateAuthority.Data",
+              "Endpoint.$": "$.Eks.Cluster.Endpoint",
+              "Namespace.$": "$.Namespace",
+              "Job": {
+                "apiVersion": "batch/v1",
+                "kind": "Job",
+                "metadata": {
+                  "name.$": "States.Format('refresh-mysqldump-{}-{}', $.Date, $.Name)",
+                  "namespace.$": "$.Namespace"
+                },
+                "spec": {
+                  "template": {
+                    "metadata": {
+                      "name": "refresh-mysqldump"
+                    },
+                    "spec": {
+                      "serviceAccountName": "refresh",
+                      "nodeSelector": {
+                        "service.$": "$.NodeSelector"
+                      },
+                      "tolerations": [
+                        {
+                          "key": "dedicated",
+                          "operator": "Equal",
+                          "value.$": "$.NodeSelector",
+                          "effect": "NoExecute"
+                        },
+                        {
+                          "key": "env",
+                          "operator": "Equal",
+                          "value.$": "$.Namespace",
+                          "effect": "NoExecute"
+                        }
+                      ],
+                      "volumes": [
+                        {
+                          "name": "shared-data",
+                          "persistentVolumeClaim": {
+                            "claimName.$": "$.EfsName"
+                          }
+                        }
+                      ],
+                      "containers": [
+                        {
+                          "name": "mysqldump",
+                          "image": "akirosit/mysql-s3:latest",
+                          "imagePullPolicy": "Always",
+                          "command": [
+                            "/dump.sh"
+                          ],
+                          "volumeMounts": [
+                            {
+                              "name": "shared-data",
+                              "mountPath": "/refresh",
+                              "subPath.$": "States.Format('refresh-mysqldump-{}', $.Date)"
+                            }
+                          ],
+                          "env": [
+                            {
+                              "name": "TZ",
+                              "value": "Europe/Paris"
+                            },
+                            {
+                              "name": "MYSQL_HOST",
+                              "value.$": "$.Endpoint"
+                            },
+                            {
+                              "name": "MYSQL_USER",
+                              "value.$": "$.Username"
+                            },
+                            {
+                              "name": "MYSQL_PASSWORD",
+                              "value.$": "$.Password"
+                            },
+                            {
+                              "name": "MYSQL_DATABASE",
+                              "value.$": "$.Database"
+                            },
+                            {
+                              "name": "MYSQL_TABLE",
+                              "value.$": "$.Table"
+                            },
+                            {
+                              "name": "LOCAL_DIR",
+                              "value": "/refresh"
+                            }
+                          ]
+                        }
+                      ],
+                      "restartPolicy": "Never"
+                    }
+                  }
+                }
+              }
+            },
+            "End": true,
+            "Credentials": {
+              "RoleArn.$": "$.EksRoleArn"
+            }
+          }
+        }
+      },
+      "ResultPath": "$.map-eks-mysqldump-job",
+      "Next": "choice-run-scripts-old-cluster",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "ResultPath": "$.map-eks-mysqldump-job-errormsg",
+          "Next": "update-dynamodb-failure"
+        }
+      ]
     },
     "choice-run-scripts-old-cluster": {
       "Type": "Choice",
@@ -951,10 +1158,185 @@
         {
           "Variable": "$.check-status-enable-master-user-secret-result.DbClusters[0].Status",
           "StringEquals": "available",
-          "Next": "choice-run-scripts"
+          "Next": "choice-run-mysqlimport-cluster"
         }
       ],
       "Default": "rotate-database-users-secrets"
+    },
+    "choice-run-mysqlimport-cluster": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.RunMysqlImportCluster",
+          "BooleanEquals": true,
+          "Next": "get-cluster-endpoint"
+        }
+      ],
+      "Default": "choice-run-scripts"
+    },
+    "get-cluster-endpoint": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:describeDBClusters",
+      "Next": "get-database-master-user-secret-value",
+      "Parameters": {
+        "DbClusterIdentifier.$": "$.TmpDbClusterIdentifier"
+      },
+      "ResultSelector": {
+        "Endpoint.$": "$.DbClusters[0].Endpoint"
+      },
+      "ResultPath": "$.get-cluster-endpoint-result",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "ResultPath": "$.get-cluster-endpoint.errormsg",
+          "Next": "update-dynamodb-failure"
+        }
+      ]
+    },
+    "get-database-master-user-secret-value": {
+      "Type": "Task",
+      "Parameters": {
+        "SecretId.$": "$.enable-master-user-secret-result.DbCluster.MasterUserSecret.SecretArn"
+      },
+      "Resource": "arn:aws:states:::aws-sdk:secretsmanager:getSecretValue",
+      "Next": "format-master-user-secret-string",
+      "ResultPath": "$.get-database-master-user-secret-value-result"
+    },
+    "format-master-user-secret-string": {
+      "Type": "Pass",
+      "Parameters": {
+        "SecretString.$": "States.StringToJson($['get-database-master-user-secret-value-result']['SecretString'])"
+      },
+      "Next": "get-cluster-info-import",
+      "ResultPath": "$.format-master-user-secret-string"
+    },
+    "get-cluster-info-import": {
+      "Type": "Task",
+      "Next": "run-eks-mysqlimport-job",
+      "Credentials": {
+        "RoleArn.$": "$.EksRoleArn"
+      },
+      "Parameters": {
+        "Name.$": "$.EksClusterName"
+      },
+      "Resource": "arn:aws:states:::aws-sdk:eks:describeCluster",
+      "ResultPath": "$.Eks"
+    },
+    "run-eks-mysqlimport-job": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::eks:runJob.sync",
+      "Credentials": {
+        "RoleArn.$": "$.EksRoleArn"
+      },
+      "Parameters": {
+        "ClusterName.$": "$.Eks.Cluster.Name",
+        "CertificateAuthority.$": "$.Eks.Cluster.CertificateAuthority.Data",
+        "Endpoint.$": "$.Eks.Cluster.Endpoint",
+        "Namespace.$": "$.EksNamespace",
+        "Job": {
+          "apiVersion": "batch/v1",
+          "kind": "Job",
+          "metadata": {
+            "name.$": "States.Format('refresh-mysqlimport-{}', $.computeValues.Date)",
+            "namespace.$": "$.EksNamespace"
+          },
+          "spec": {
+            "template": {
+              "metadata": {
+                "name": "refresh-mysqlimport"
+              },
+              "spec": {
+                "serviceAccountName": "refresh",
+                "nodeSelector": {
+                  "service.$": "$.NodeSelector"
+                },
+                "tolerations": [
+                  {
+                    "key": "dedicated",
+                    "operator": "Equal",
+                    "value.$": "$.NodeSelector",
+                    "effect": "NoExecute"
+                  },
+                  {
+                    "key": "env",
+                    "operator": "Equal",
+                    "value.$": "$.EksNamespace",
+                    "effect": "NoExecute"
+                  }
+                ],
+                "volumes": [
+                  {
+                    "name": "shared-data",
+                    "persistentVolumeClaim": {
+                      "claimName.$": "$.EfsName"
+                    }
+                  }
+                ],
+                "containers": [
+                  {
+                    "name": "mysqlimport",
+                    "image": "akirosit/mysql-s3:latest",
+                    "imagePullPolicy": "Always",
+                    "command": [
+                      "/import.sh"
+                    ],
+                    "volumeMounts": [
+                      {
+                        "name": "shared-data",
+                        "mountPath": "/refresh",
+                        "subPath.$": "States.Format('refresh-mysqldump-{}', $.computeValues.Date)"
+                      }
+                    ],
+                    "env": [
+                      {
+                        "name": "TZ",
+                        "value": "Europe/Paris"
+                      },
+                      {
+                        "name": "MYSQL_HOST",
+                        "value.$": "$.get-cluster-endpoint-result.Endpoint"
+                      },
+                      {
+                        "name": "MYSQL_USER",
+                        "value.$": "$.format-master-user-secret-string.SecretString.username"
+                      },
+                      {
+                        "name": "MYSQL_PASSWORD",
+                        "value.$": "$.format-master-user-secret-string.SecretString.password"
+                      },
+                      {
+                        "name": "MYSQL_DATABASE",
+                        "value.$": "$.DatabaseName"
+                      },
+                      {
+                        "name": "LOCAL_DIR",
+                        "value": "/refresh"
+                      },
+                      {
+                        "name": "S3_SYNC",
+                        "value": "true"
+                      },
+                      {
+                        "name": "S3_BUCKET",
+                        "value.$": "$.RefreshBucket"
+                      },
+                      {
+                        "name": "S3_PREFIX",
+                        "value.$": "$.RefreshBucketPrefix"
+                      }
+                    ]
+                  }
+                ],
+                "restartPolicy": "Never"
+              }
+            }
+          }
+        }
+      },
+      "ResultPath": "$.run-eks-mysqlimport-job",
+      "Next": "choice-run-scripts"
     },
     "choice-run-scripts": {
       "Type": "Choice",
@@ -1351,10 +1733,10 @@
           "format-secret-string-after-rename": {
             "Type": "Pass",
             "Parameters": {
-              "SecretString.$": "States.StringToJson($['get-database-user-secret-value-result']['SecretString'])"
+              "SecretString.$": "States.StringToJson($['get-database-user-secret-value-after-rename-result']['SecretString'])"
             },
             "Next": "update-secret-after-rename",
-            "ResultPath": "$.format-secret-string"
+            "ResultPath": "$.format-secret-string-after-rename"
           },
           "update-secret-after-rename": {
             "Type": "Task",
@@ -1363,7 +1745,7 @@
               "ClientRequestToken.$": "States.UUID()",
               "SecretString": {
                 "username.$": "$.Username",
-                "password.$": "$.format-secret-string.SecretString.password",
+                "password.$": "$.format-secret-string-after-rename.SecretString.password",
                 "engine.$": "$.Engine",
                 "host.$": "$.Endpoint",
                 "port.$": "$.Port",
@@ -1418,12 +1800,12 @@
         "SecretId.$": "$$.Map.Item.Value.SecretId",
         "Username.$": "$$.Map.Item.Value.Username",
         "KmsKeyId.$": "$.MasterUserSecretKmsKeyId",
-        "Engine.$": "$.check-status-rename-cluster-result.DbClusters[0].Engine",
-        "Endpoint.$": "$.check-status-rename-cluster-result.DbClusters[0].Endpoint",
-        "Port.$": "$.check-status-rename-cluster-result.DbClusters[0].Port",
+        "Engine.$": "$.get-cluster-infos-result.DbClusters[0].Engine",
+        "Endpoint.$": "$.get-cluster-infos-result.DbClusters[0].Endpoint",
+        "Port.$": "$.get-cluster-infos-result.DbClusters[0].Port",
         "DatabaseName.$": "$.DatabaseName",
         "jdbcOptions.$": "$.jdbcOptions",
-        "MasterArn.$": "$.enable-master-user-secret-result.DbCluster.MasterUserSecret.SecretArn",
+        "MasterArn.$": "$.get-cluster-infos-result.DbClusters[0].MasterUserSecret.SecretArn",
         "DbClusterIdentifier.$": "$.DbClusterIdentifier",
         "RotationLambdaARN.$": "$.RotationLambdaARN"
       },

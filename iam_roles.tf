@@ -47,8 +47,21 @@ resource "aws_iam_policy" "step_function_role" {
   policy = data.aws_iam_policy_document.step_function_role.json
 }
 
+resource "aws_iam_policy" "step_function_assume_eks_role" {
+  count  = var.eks_role_arn != "" ? 1 : 0
+  name   = "${local.name_cc}StepFunctionAssumeEksRole"
+  path   = "/"
+  policy = data.aws_iam_policy_document.step_function_assume_eks_role[0].json
+}
+
 resource "aws_iam_role_policy_attachment" "step_function_role" {
   policy_arn = aws_iam_policy.step_function_role.arn
+  role       = aws_iam_role.step_function.name
+}
+
+resource "aws_iam_role_policy_attachment" "step_function_assume_eks_role" {
+  count      = var.eks_role_arn != "" ? 1 : 0
+  policy_arn = aws_iam_policy.step_function_assume_eks_role[0].arn
   role       = aws_iam_role.step_function.name
 }
 
