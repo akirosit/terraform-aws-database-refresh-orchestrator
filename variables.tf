@@ -92,6 +92,12 @@ variable "rotate_database_users_secrets" {
   default     = false
 }
 
+variable "jdbc_options" {
+  description = "JDBC options to include in jdbcUrl connection string in the mysql user secret"
+  type        = string
+  default     = ""
+}
+
 variable "database_users_secrets" {
   description = "Database users secrets IDs"
   type = list(object({
