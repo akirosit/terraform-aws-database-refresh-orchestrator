@@ -40,6 +40,7 @@
   "OldDatabaseName": "${OldDatabaseName}",
   "DatabaseName": "${DatabaseName}",
   "RotateDatabaseUsersSecrets": ${RotateDatabaseUsersSecrets},
+  "jdbcOptions": "${jdbcOptions}",
   "DatabaselUsersSecrets": ${DatabaselUsersSecrets},
   "RotationLambdaARN": "${RotationLambdaARN}",
   "RenameCluster": ${RenameCluster},

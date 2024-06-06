@@ -39,6 +39,7 @@ locals {
     DatabaseName                  = var.database_name
     RefreshBucketPrefixOldCluster = "${local.post_sql_scripts_bucket_prefix}-old"
     RotateDatabaseUsersSecrets    = var.rotate_database_users_secrets
+    jdbcOptions                   = var.jdbc_options
     RotationLambdaARN             = aws_lambda_function.functions["SecretsManagerRDSMySQLRotationMultiUser"].arn
     DatabaselUsersSecrets         = jsonencode(var.database_users_secrets)
     RenameCluster                 = var.rename_cluster
