@@ -32,7 +32,7 @@ locals {
     EksNamespace                  = var.eks_namespace
     NodeSelector                  = var.eks_node_selector
     RunMysqlImportCluster         = var.run_mysqlimport_cluster
-    MysqlTables                   = var.mysql_tables
+    MysqlTables                   = jsonencode(var.mysql_tables)
     RunSqlScripts                 = var.run_post_sql_scripts
     RunSqlScriptsOldCluster       = var.run_pre_sql_scripts
     OldDatabaseName               = var.old_database_name
