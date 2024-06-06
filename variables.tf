@@ -116,8 +116,8 @@ variable "run_mysqldump_old_cluster" {
 variable "mysql_tables" {
   description = "MySQL Tables to dump/restore"
   type = list(object({
-    Datbase = string
-    Table   = string
+    Database = string
+    Table    = string
   }))
   default = []
 }
