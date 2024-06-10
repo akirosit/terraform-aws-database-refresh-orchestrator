@@ -399,7 +399,8 @@
         "Database.$": "$$.Map.Item.Value.Database",
         "Table.$": "$$.Map.Item.Value.Table",
         "Namespace.$": "$.EksNamespace",
-        "NodeSelector.$": "$.NodeSelector",
+        "EksNodeSelector.$": "$.EksNodeSelector",
+        "EksTolerations.$": "$.EksTolerations",
         "EfsName.$": "$.EfsName",
         "EksRoleArn.$": "$.EksRoleArn",
         "Eks.$": "$.Eks",
@@ -433,31 +434,8 @@
                     },
                     "spec": {
                       "serviceAccountName": "refresh",
-                      "nodeSelector": {
-                        "service.$": "$.NodeSelector"
-                      },
-                      "tolerations": [
-                        {
-                          "key": "dedicated",
-                          "operator": "Equal",
-                          "value.$": "$.NodeSelector",
-                          "effect": "NoExecute"
-                        },
-                        {
-                          "key": "env",
-                          "operator": "Equal",
-                          "value.$": "$.Namespace",
-                          "effect": "NoExecute"
-                        }
-                      ],
-                      "volumes": [
-                        {
-                          "name": "shared-data",
-                          "persistentVolumeClaim": {
-                            "claimName.$": "$.EfsName"
-                          }
-                        }
-                      ],
+                      "nodeSelector.$": "$.EksNodeSelector",
+                      "tolerations.$": "$.EksTolerations",
                       "containers": [
                         {
                           "name": "mysqldump",
@@ -1249,23 +1227,8 @@
               },
               "spec": {
                 "serviceAccountName": "refresh",
-                "nodeSelector": {
-                  "service.$": "$.NodeSelector"
-                },
-                "tolerations": [
-                  {
-                    "key": "dedicated",
-                    "operator": "Equal",
-                    "value.$": "$.NodeSelector",
-                    "effect": "NoExecute"
-                  },
-                  {
-                    "key": "env",
-                    "operator": "Equal",
-                    "value.$": "$.EksNamespace",
-                    "effect": "NoExecute"
-                  }
-                ],
+                "nodeSelector.$": "$.EksNodeSelector",
+                "tolerations.$": "$.EksTolerations",
                 "volumes": [
                   {
                     "name": "shared-data",

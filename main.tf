@@ -30,7 +30,8 @@ locals {
     EksRoleArn                    = var.eks_role_arn
     EksClusterName                = var.eks_cluster_name
     EksNamespace                  = var.eks_namespace
-    NodeSelector                  = var.eks_node_selector
+    EksNodeSelector               = jsonencode(var.eks_node_selector)
+    EksTolerations                = jsonencode(var.eks_tolerations)
     RunMysqlImportCluster         = var.run_mysqlimport_cluster
     MysqlTables                   = jsonencode(var.mysql_tables)
     RunSqlScripts                 = var.run_post_sql_scripts

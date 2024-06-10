@@ -148,8 +148,19 @@ variable "eks_namespace" {
 
 variable "eks_node_selector" {
   description = "EKS node selector"
-  type        = string
-  default     = ""
+  type        = map(string)
+  default     = {}
+}
+
+variable "eks_tolerations" {
+  description = "EKS tolerations"
+  type = list(object({
+    key      = string
+    operator = string
+    value    = string
+    effect   = string
+  }))
+  default = []
 }
 
 variable "efs_name" {
