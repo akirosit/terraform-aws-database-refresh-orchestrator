@@ -436,6 +436,14 @@
                       "serviceAccountName": "refresh",
                       "nodeSelector.$": "$.EksNodeSelector",
                       "tolerations.$": "$.EksTolerations",
+                      "volumes": [
+                        {
+                          "name": "shared-data",
+                          "persistentVolumeClaim": {
+                            "claimName.$": "$.EfsName"
+                          }
+                        }
+                      ],
                       "containers": [
                         {
                           "name": "mysqldump",
