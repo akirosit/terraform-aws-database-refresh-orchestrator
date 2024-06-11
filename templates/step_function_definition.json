@@ -1699,7 +1699,7 @@
                 "Next": "get-database-user-secret-value-after-rename"
               }
             ],
-            "ResultPath": "$.get-database-source-user-secret-value-result"
+            "ResultPath": "$.get-database-source-user-secret-value-after-rename-result"
           },
           "format-secret-string-after-rename": {
             "Type": "Pass",
