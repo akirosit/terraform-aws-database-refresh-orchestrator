@@ -456,7 +456,7 @@
                             {
                               "name": "shared-data",
                               "mountPath": "/refresh",
-                              "subPath.$": "States.Format('refresh-mysqldump-{}', $.Date)"
+                              "subPath.$": "States.Format('refresh-mysqldump-{}-{}', $.Namespace, $.Date)"
                             }
                           ],
                           "env": [
@@ -1257,7 +1257,7 @@
                       {
                         "name": "shared-data",
                         "mountPath": "/refresh",
-                        "subPath.$": "States.Format('refresh-mysqldump-{}', $.computeValues.Date)"
+                        "subPath.$": "States.Format('refresh-mysqldump-{}-{}', $.EksNamespace, $.computeValues.Date)"
                       }
                     ],
                     "env": [
@@ -1681,15 +1681,41 @@
         "ProcessorConfig": {
           "Mode": "INLINE"
         },
-        "StartAt": "get-database-user-secret-value-after-rename",
+        "StartAt": "get-database-source-user-secret-value-after-rename",
         "States": {
+          "get-database-source-user-secret-value-after-rename": {
+            "Type": "Task",
+            "Parameters": {
+              "SecretId.$": "$.SourceSecretId"
+            },
+            "Resource": "arn:aws:states:::aws-sdk:secretsmanager:getSecretValue",
+            "Next": "format-secret-string-after-rename",
+            "Catch": [
+              {
+                "ErrorEquals": [
+                  "SecretsManager.ResourceNotFoundException"
+                ],
+                "ResultPath": "$.get-database-source-user-secret-value-after-rename-result",
+                "Next": "get-database-user-secret-value-after-rename"
+              }
+            ],
+            "ResultPath": "$.get-database-source-user-secret-value-result"
+          },
+          "format-secret-string-after-rename": {
+            "Type": "Pass",
+            "Parameters": {
+              "SecretString.$": "States.StringToJson($['get-database-source-user-secret-value-after-rename-result']['SecretString'])"
+            },
+            "Next": "get-database-user-secret-value-after-rename",
+            "ResultPath": "$.format-secret-string-after-rename"
+          },
           "get-database-user-secret-value-after-rename": {
             "Type": "Task",
             "Parameters": {
               "SecretId.$": "$.SecretId"
             },
             "Resource": "arn:aws:states:::aws-sdk:secretsmanager:getSecretValue",
-            "Next": "format-secret-string-after-rename",
+            "Next": "update-secret-after-rename",
             "Catch": [
               {
                 "ErrorEquals": [
@@ -1700,14 +1726,6 @@
               }
             ],
             "ResultPath": "$.get-database-user-secret-value-after-rename-result"
-          },
-          "format-secret-string-after-rename": {
-            "Type": "Pass",
-            "Parameters": {
-              "SecretString.$": "States.StringToJson($['get-database-user-secret-value-after-rename-result']['SecretString'])"
-            },
-            "Next": "update-secret-after-rename",
-            "ResultPath": "$.format-secret-string-after-rename"
           },
           "update-secret-after-rename": {
             "Type": "Task",
@@ -1738,7 +1756,7 @@
               "KmsKeyId.$": "$.KmsKeyId",
               "SecretString": {
                 "username.$": "$.Username",
-                "password.$": "States.UUID()",
+                "password.$": "$.format-secret-string-after-rename.SecretString.password",
                 "engine.$": "$.Engine",
                 "host.$": "$.Endpoint",
                 "port.$": "$.Port",
@@ -1768,6 +1786,7 @@
       "Next": "update-dynamodb",
       "ItemsPath": "$.DatabaselUsersSecrets",
       "ItemSelector": {
+        "SourceSecretId.$": "$$.Map.Item.Value.SourceSecretId",
         "SecretId.$": "$$.Map.Item.Value.SecretId",
         "Username.$": "$$.Map.Item.Value.Username",
         "KmsKeyId.$": "$.MasterUserSecretKmsKeyId",
