@@ -12,6 +12,8 @@
   "RestoreType": "${RestoreType}",
   "DbSubnetGroupName": "${DBSubnetGroup}",
   "DbInstanceClass": "${DbInstanceClass}",
+  "AuroraServerlessMinCapacity": ${AuroraServerlessMinCapacity},
+  "AuroraServerlessMaxCapacity": ${AuroraServerlessMaxCapacity},
   "DbClusterParameterGroupName": "${ClusterParameterGroup}",
   "DbParameterGroupName": "${ParameterGroup}",
   "VpcSecurityGroupIds": [

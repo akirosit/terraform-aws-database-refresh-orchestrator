@@ -115,8 +115,8 @@
         "Engine": "aurora-mysql",
         "DbClusterInstanceClass.$": "$.DbInstanceClass",
         "ServerlessV2ScalingConfiguration": {
-          "MinCapacity": 1,
-          "MaxCapacity": 2
+          "MinCapacity.$": "$.AuroraServerlessMinCapacity",
+          "MaxCapacity.$": "$.AuroraServerlessMaxCapacity"
         },
         "EngineVersion.$": "$.result-get-db-cluster-snapshot-infos.EngineVersion",
         "SnapshotIdentifier.$": "$.result-get-db-cluster-snapshot-infos.DBClusterSnapshotIdentifier",
