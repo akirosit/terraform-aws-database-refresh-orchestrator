@@ -56,6 +56,18 @@ variable "refresh_instance_class" {
   default     = null
 }
 
+variable "aurora_serverless_min_capacity" {
+  description = "Aurora Serverless min capacity"
+  type        = number
+  default     = 0.5
+}
+
+variable "aurora_serverless_max_capacity" {
+  description = "Aurora Serverless max capacity"
+  type        = number
+  default     = 2
+}
+
 variable "run_pre_sql_scripts" {
   description = "Run pre SQL scripts on old cluster (that will be deleted/restored)"
   type        = bool

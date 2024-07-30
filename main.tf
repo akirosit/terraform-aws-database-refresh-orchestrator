@@ -17,6 +17,8 @@ locals {
     DBSubnetGroup                 = element(tolist(local.cluster_db_subnet_group_name), 0)
     DBSecurityGroup               = element(tolist(local.cluster_security_group_ids), 1)
     DbInstanceClass               = local.db_instance_class
+    AuroraServerlessMinCapacity   = var.aurora_serverless_min_capacity
+    AuroraServerlessMaxCapacity   = var.aurora_serverless_max_capacity
     Encrypted                     = var.encrypted
     KmsKeyId                      = var.kms_key_id == null ? "" : var.kms_key_id
     MasterUserSecretKmsKeyId      = var.master_user_kms_key_id == null ? aws_kms_key.refresh_secret[0].key_id : var.master_user_kms_key_id
