@@ -26,7 +26,7 @@ locals {
       }
       environment = {
         "variables" = {
-          EXCLUDE_CHARACTERS         = "/@\"'\\"
+          EXCLUDE_CHARACTERS         = var.rotate_database_exclude_characters
           EXCLUDE_LOWERCASE          = false
           EXCLUDE_NUMBERS            = false
           EXCLUDE_PUNCTUATION        = false

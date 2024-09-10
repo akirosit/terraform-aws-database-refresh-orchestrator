@@ -104,6 +104,12 @@ variable "rotate_database_users_secrets" {
   default     = false
 }
 
+variable "rotate_database_exclude_characters" {
+  description = "Exclude characters from password"
+  type        = string
+  default     = "/@\"'\\"
+}
+
 variable "jdbc_options" {
   description = "JDBC options to include in jdbcUrl connection string in the mysql user secret"
   type        = string
