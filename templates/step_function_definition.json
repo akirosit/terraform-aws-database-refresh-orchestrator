@@ -1462,9 +1462,11 @@
                 "password.$": "$.format-secret-string.SecretString.password",
                 "engine.$": "$.Engine",
                 "host.$": "$.Endpoint",
+                "host_ro.$": "$.ReaderEndpoint",
                 "port.$": "$.Port",
                 "dbname.$": "$.DatabaseName",
                 "jdbcUrl.$": "States.Format('jdbc:mysql://{}/{}?{}', $.Endpoint, $.DatabaseName, $.jdbcOptions)",
+                "jdbcReadOnlyUrl.$": "States.Format('jdbc:mysql://{}/{}?{}', $.ReaderEndpoint, $.DatabaseName, $.jdbcOptions)",
                 "masterarn.$": "$.MasterArn",
                 "dbClusterIdentifier.$": "$.DbClusterIdentifier"
               }
@@ -1484,9 +1486,11 @@
                 "password.$": "$.format-secret-string.SecretString.password",
                 "engine.$": "$.Engine",
                 "host.$": "$.Endpoint",
+                "host_ro.$": "$.ReaderEndpoint",
                 "port.$": "$.Port",
                 "dbname.$": "$.DatabaseName",
                 "jdbcUrl.$": "States.Format('jdbc:mysql://{}/{}?{}', $.Endpoint, $.DatabaseName, $.jdbcOptions)",
+                "jdbcReadOnlyUrl.$": "States.Format('jdbc:mysql://{}/{}?{}', $.ReaderEndpoint, $.DatabaseName, $.jdbcOptions)",
                 "masterarn.$": "$.MasterArn",
                 "dbClusterIdentifier.$": "$.DbClusterIdentifier"
               }
@@ -1517,6 +1521,7 @@
         "KmsKeyId.$": "$.MasterUserSecretKmsKeyId",
         "Engine.$": "$.check-status-restore-result.DbCluster.Engine",
         "Endpoint.$": "$.check-status-restore-result.DbCluster.Endpoint",
+        "ReaderEndpoint.$": "$.check-status-restore-result.DbCluster.ReaderEndpoint",
         "Port.$": "$.check-status-restore-result.DbCluster.Port",
         "DatabaseName.$": "$.DatabaseName",
         "jdbcOptions.$": "$.jdbcOptions",
@@ -1737,9 +1742,11 @@
                 "password.$": "$.format-secret-string-after-rename.SecretString.password",
                 "engine.$": "$.Engine",
                 "host.$": "$.Endpoint",
+                "host_ro.$": "$.ReaderEndpoint",
                 "port.$": "$.Port",
                 "dbname.$": "$.DatabaseName",
                 "jdbcUrl.$": "States.Format('jdbc:mysql://{}/{}?{}', $.Endpoint, $.DatabaseName, $.jdbcOptions)",
+                "jdbcReadOnlyUrl.$": "States.Format('jdbc:mysql://{}/{}?{}', $.ReaderEndpoint, $.DatabaseName, $.jdbcOptions)",
                 "masterarn.$": "$.MasterArn",
                 "dbClusterIdentifier.$": "$.DbClusterIdentifier"
               }
@@ -1759,9 +1766,11 @@
                 "password.$": "$.format-secret-string-after-rename.SecretString.password",
                 "engine.$": "$.Engine",
                 "host.$": "$.Endpoint",
+                "host_ro.$": "$.ReaderEndpoint",
                 "port.$": "$.Port",
                 "dbname.$": "$.DatabaseName",
                 "jdbcUrl.$": "States.Format('jdbc:mysql://{}/{}?{}', $.Endpoint, $.DatabaseName, $.jdbcOptions)",
+                "jdbcReadOnlyUrl.$": "States.Format('jdbc:mysql://{}/{}?{}', $.ReaderEndpoint, $.DatabaseName, $.jdbcOptions)",
                 "masterarn.$": "$.MasterArn",
                 "dbClusterIdentifier.$": "$.DbClusterIdentifier"
               }
@@ -1792,6 +1801,7 @@
         "KmsKeyId.$": "$.MasterUserSecretKmsKeyId",
         "Engine.$": "$.check-status-rename-cluster-result.DbClusters[0].Engine",
         "Endpoint.$": "$.check-status-rename-cluster-result.DbClusters[0].Endpoint",
+        "ReaderEndpoint.$": "$.check-status-rename-cluster-result.DbClusters[0].ReaderEndpoint",
         "Port.$": "$.check-status-rename-cluster-result.DbClusters[0].Port",
         "DatabaseName.$": "$.DatabaseName",
         "jdbcOptions.$": "$.jdbcOptions",
