@@ -69,8 +69,9 @@ locals {
   cluster_arn_wildcard = [
     for database_arn in local.cluster_arn : "${database_arn}-*"
   ]
-  cluster_parameter_group        = var.refresh_cluster_already_exist ? data.aws_rds_cluster.refresh_cluster[0].db_cluster_parameter_group_name : local.source_cluster_parameter_group
-  cluster_security_group_ids     = var.refresh_cluster_already_exist ? data.aws_rds_cluster.refresh_cluster[0].vpc_security_group_ids : local.source_cluster_security_group_ids
+  cluster_parameter_group = var.refresh_cluster_already_exist ? data.aws_rds_cluster.refresh_cluster[0].db_cluster_parameter_group_name : local.source_cluster_parameter_group
+  cluster_security_group_ids = var.refresh_cluster_db_security_group == [] ? (
+  var.refresh_cluster_already_exist ? data.aws_rds_cluster.refresh_cluster[0].vpc_security_group_ids : local.source_cluster_security_group_ids) : var.refresh_cluster_db_security_group
   cluster_security_group_arn     = local.source_cluster_security_group_arn # var.refresh_cluster_already_exist ? data.aws_security_group.refresh_cluster[*].arn : 
   cluster_db_subnet_group_name   = var.refresh_cluster_already_exist ? data.aws_rds_cluster.refresh_cluster[*].db_subnet_group_name : [local.source_cluster_db_subnet_group_name]
   cluster_db_subnet_group_arn    = var.refresh_cluster_already_exist ? data.aws_db_subnet_group.refresh_cluster[*].arn : local.source_cluster_db_subnet_group_arn

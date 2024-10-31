@@ -50,6 +50,12 @@ variable "refresh_cluster_already_exist" {
   default     = true
 }
 
+variable "refresh_cluster_db_security_group" {
+  description = "The cluster to be refreshed/created DB security group"
+  type        = list(string)
+  default     = []
+}
+
 variable "refresh_instance_class" {
   description = "The instance class of the cluster to be refreshed/created"
   type        = string
