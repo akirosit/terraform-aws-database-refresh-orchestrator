@@ -1678,7 +1678,7 @@
           "Next": "map-database-users-after-rename"
         }
       ],
-      "Default": "POST-RESTORE-RENAME"
+      "Default": "update-dynamodb"
     },
     "map-database-users-after-rename": {
       "Type": "Map",
