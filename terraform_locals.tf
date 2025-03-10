@@ -1,3 +1,6 @@
+# Version générique du fichier terraform_locals.tf
+# Ce fichier remplace terraform_locals.tf
+
 data "aws_caller_identity" "current" {}
 
 data "aws_region" "current" {}
@@ -10,79 +13,47 @@ locals {
 
   name    = local.app_name
   name_cc = replace(title(local.name), "-", "")
-}
 
-data "aws_rds_cluster" "source_cluster" {
-  cluster_identifier = var.source_cluster
-}
+  # ARNs génériques pour les ressources
+  generic_cluster_arn        = "arn:aws:rds:${local.current_region}:${local.current_account_id}:cluster:*"
+  generic_instance_arn       = "arn:aws:rds:${local.current_region}:${local.current_account_id}:db:*"
+  generic_security_group_arn = "arn:aws:ec2:${local.current_region}:${local.current_account_id}:security-group/*"
+  generic_subnet_group_arn   = "arn:aws:rds:${local.current_region}:${local.current_account_id}:subgrp:*"
 
-data "aws_db_instance" "source_cluster" {
-  for_each               = data.aws_rds_cluster.source_cluster.cluster_members
-  db_instance_identifier = each.value
-}
+  # Utilisation d'ARNs génériques au lieu de ressources spécifiques
+  source_cluster_arn                  = [local.generic_cluster_arn]
+  source_cluster_arn_wildcard         = ["${local.generic_cluster_arn}-*"]
+  source_cluster_security_group_ids   = []
+  source_cluster_security_group_arn   = [local.generic_security_group_arn]
+  source_cluster_db_subnet_group_name = "generic-subnet-group"
+  source_cluster_db_subnet_group_arn  = [local.generic_subnet_group_arn]
+  source_cluster_parameter_group      = "generic-parameter-group"
+  source_instance_parameter_group     = ["generic-instance-parameter-group"]
 
-data "aws_security_group" "source_cluster" {
-  for_each = toset(local.source_cluster_security_group_ids)
-  id       = each.key
-}
+  cluster_arn                     = [local.generic_cluster_arn]
+  cluster_arn_wildcard            = ["${local.generic_cluster_arn}-*"]
+  cluster_parameter_group         = "generic-parameter-group"
+  cluster_security_group_ids      = []
+  cluster_security_group_arn      = [local.generic_security_group_arn]
+  cluster_db_subnet_group_name    = ["generic-subnet-group"]
+  cluster_db_subnet_group_arn     = [local.generic_subnet_group_arn]
+  cluster_master_user_secret_arn  = ""
+  db_instance_class               = "db.serverless"
+  instance_databases              = ["generic-instance"]
+  instance_databases_arn          = [local.generic_instance_arn]
+  instance_databases_arn_wildcard = ["${local.generic_instance_arn}-*"]
+  instance_parameter_group        = ["generic-instance-parameter-group"]
 
-data "aws_db_subnet_group" "source_cluster" {
-  name = local.source_cluster_db_subnet_group_name
-}
+  # Bucket S3
+  refresh_bucket_id = var.s3_bucket_name == null ? (
+    var.create_s3_bucket ? aws_s3_bucket.refresh_bucket[0].id : null
+  ) : var.s3_bucket_name
 
-data "aws_rds_cluster" "refresh_cluster" {
-  count              = var.refresh_cluster_already_exist ? 1 : 0
-  cluster_identifier = var.refresh_cluster
-}
+  # Préfixes pour les scripts SQL
+  post_sql_scripts_bucket_prefix = "sql-scripts/${local.current_region}/generic"
 
-data "aws_db_instance" "refresh_cluster" {
-  for_each               = var.refresh_cluster_already_exist ? local.instance_databases : toset([])
-  db_instance_identifier = each.value
-}
-
-data "aws_security_group" "refresh_cluster" {
-  for_each = toset(local.cluster_security_group_ids)
-  id       = each.key
-}
-
-data "aws_db_subnet_group" "refresh_cluster" {
-  count = var.refresh_cluster_already_exist ? 1 : 0
-  name  = local.cluster_db_subnet_group_name[0]
-}
-
-locals {
-  source_cluster_arn = [
-    data.aws_rds_cluster.source_cluster.arn
-  ]
-  source_cluster_arn_wildcard = [
-    for database_arn in local.source_cluster_arn : "${database_arn}-*"
-  ]
-  source_cluster_security_group_ids   = data.aws_rds_cluster.source_cluster.vpc_security_group_ids
-  source_cluster_security_group_arn   = ["arn:aws:ec2:${local.current_region}:${local.current_account_id}:security-group/sg-*"] #data.aws_security_group.source_cluster[*].arn
-  source_cluster_db_subnet_group_name = data.aws_rds_cluster.source_cluster.db_subnet_group_name
-  source_cluster_db_subnet_group_arn  = [data.aws_db_subnet_group.source_cluster.arn]
-  source_cluster_parameter_group      = data.aws_rds_cluster.source_cluster.db_cluster_parameter_group_name
-  source_instance_parameter_group     = element(values(data.aws_db_instance.source_cluster), 0).db_parameter_groups
-  cluster_arn = var.refresh_cluster_already_exist ? data.aws_rds_cluster.refresh_cluster[*].arn : [
-    "arn:aws:rds:${local.current_region}:${local.current_account_id}:cluster:${var.refresh_cluster}"
-  ]
-  cluster_arn_wildcard = [
-    for database_arn in local.cluster_arn : "${database_arn}-*"
-  ]
-  cluster_parameter_group = var.refresh_cluster_already_exist ? data.aws_rds_cluster.refresh_cluster[0].db_cluster_parameter_group_name : local.source_cluster_parameter_group
-  cluster_security_group_ids = length(var.refresh_cluster_db_security_group) == 0 ? (
-  var.refresh_cluster_already_exist ? data.aws_rds_cluster.refresh_cluster[0].vpc_security_group_ids : local.source_cluster_security_group_ids) : var.refresh_cluster_db_security_group
-  cluster_security_group_arn     = local.source_cluster_security_group_arn # var.refresh_cluster_already_exist ? data.aws_security_group.refresh_cluster[*].arn : 
-  cluster_db_subnet_group_name   = var.refresh_cluster_already_exist ? data.aws_rds_cluster.refresh_cluster[*].db_subnet_group_name : [local.source_cluster_db_subnet_group_name]
-  cluster_db_subnet_group_arn    = var.refresh_cluster_already_exist ? data.aws_db_subnet_group.refresh_cluster[*].arn : local.source_cluster_db_subnet_group_arn
-  cluster_master_user_secret_arn = var.refresh_cluster_already_exist ? data.aws_rds_cluster.refresh_cluster[0].master_user_secret[0].secret_arn : ""
-  db_instance_class              = var.refresh_instance_class == null ? data.aws_db_instance.source_cluster[0].db_instance_class : var.refresh_instance_class
-  instance_databases             = var.refresh_cluster_already_exist ? data.aws_rds_cluster.refresh_cluster[0].cluster_members : ["${var.refresh_cluster}-1"]
-  instance_databases_arn = [
-    "arn:aws:rds:${local.current_region}:${local.current_account_id}:db:*"
-  ]
-  instance_databases_arn_wildcard = [
-    for database_arn in local.instance_databases_arn : "${database_arn}-*"
-  ]
-  instance_parameter_group = var.refresh_cluster_already_exist ? element(values(data.aws_db_instance.refresh_cluster), 0).db_parameter_groups : local.source_instance_parameter_group
+  # SNS Topic ARN
+  sns_topic_arn = var.sns_topic_arn == null ? (
+    aws_sns_topic.refresh_env[0].arn
+  ) : var.sns_topic_arn
 }
