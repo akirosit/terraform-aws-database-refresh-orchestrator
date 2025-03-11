@@ -63,3 +63,9 @@ variable "eks_role_arn" {
   type        = string
   default     = ""
 }
+
+variable "use_jsonata_template" {
+  description = "Use jsonata template to deploy step function"
+  type        = bool
+  default     = false
+}

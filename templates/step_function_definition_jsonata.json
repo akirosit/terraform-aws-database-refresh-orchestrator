@@ -1,0 +1,2164 @@
+{
+  "Comment": "Database Refresh Orchestrator for Amazon RDS and Amazon Aurora",
+  "QueryLanguage": "JSONata",
+  "StartAt": "defaults-values",
+  "States": {
+    "defaults-values": {
+      "Type": "Pass",
+      "Next": "compute-values",
+      "Arguments": {
+        "input": "{% $states.input %}",
+        "defaultValues": {
+          "YYYY": "{% $parse($states.input.Execution.StartTime).substring(0, 4) %}",
+          "MM": "{% $parse($states.input.Execution.StartTime).substring(5, 7) %}",
+          "DD": "{% $parse($states.input.Execution.StartTime).substring(8, 10) %}",
+          "Tags": {
+            "refresh": "true",
+            "refresh-cluster": "{% $states.input.SourceDBClusterIdentifier %}"
+          }
+        }
+      }
+    },
+    "compute-values": {
+      "Type": "Pass",
+      "Next": "RESTORE-CLUSTER",
+      "Arguments": {
+        "input": "{% $states.input %}",
+        "defaultValues": "{% $states.input.defaultValues %}",
+        "computeValues": {
+          "Date": "{% $states.input.defaultValues.YYYY & $states.input.defaultValues.MM & $states.input.defaultValues.DD %}",
+          "Tags": "{% $merge([$states.input.defaultValues.Tags, $states.input.Tags]) %}"
+        }
+      }
+    },
+    "RESTORE-CLUSTER": {
+      "Comment": "Restore steps",
+      "Type": "Pass",
+      "Next": "choice-restore-type",
+      "Arguments": "{% $states.input %}"
+    },
+    "choice-restore-type": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $states.input.RestoreType = 'from-snapshot' %}",
+          "Next": "get-db-cluster-snapshot-infos"
+        },
+        {
+          "Condition": "{% $states.input.RestoreType = 'fast-clone' %}",
+          "Next": "perform-restore"
+        }
+      ],
+      "Default": "wait-restore"
+    },
+    "get-db-cluster-snapshot-infos": {
+      "Type": "Task",
+      "Arguments": {
+        "DbClusterIdentifier": "{% $states.input.SourceDBClusterIdentifier %}"
+      },
+      "Resource": "arn:aws:states:::aws-sdk:rds:describeDBClusterSnapshots",
+      "Next": "choice-std-or-serverless",
+      "Output": {
+        "input": "{% $states.input %}",
+        "result-get-db-cluster-snapshot-infos": {
+          "DBClusterSnapshotIdentifier": "{% $states.result.DbClusterSnapshots[4].DbClusterSnapshotIdentifier %}",
+          "DBClusterSnapshotArn": "{% $states.result.DbClusterSnapshots[4].DbClusterSnapshotArn %}",
+          "SnapshotCreateTime": "{% $states.result.DbClusterSnapshots[4].SnapshotCreateTime %}",
+          "EngineVersion": "{% $states.result.DbClusterSnapshots[4].EngineVersion %}"
+        }
+      }
+    },
+    "choice-std-or-serverless": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $states.input.DbInstanceClass = 'db.serverless' %}",
+          "Next": "perform-restore-from-snapshot-serverless"
+        }
+      ],
+      "Default": "perform-restore-from-snapshot"
+    },
+    "perform-restore-from-snapshot": {
+      "Type": "Task",
+      "Arguments": {
+        "DbClusterIdentifier": "{% $states.input.TmpDbClusterIdentifier %}",
+        "Engine": "aurora-mysql",
+        "DbClusterInstanceClass": "{% $states.input.DbInstanceClass %}",
+        "EngineVersion": "{% $states.input.result-get-db-cluster-snapshot-infos.EngineVersion %}",
+        "SnapshotIdentifier": "{% $states.input.result-get-db-cluster-snapshot-infos.DBClusterSnapshotIdentifier %}",
+        "DbSubnetGroupName": "{% $states.input.DbSubnetGroupName %}",
+        "DbClusterParameterGroupName": "{% $states.input.DbClusterParameterGroupName %}",
+        "CopyTagsToSnapshot": true,
+        "EnableIAMDatabaseAuthentication": "False",
+        "EnableCloudwatchLogsExports": [
+          "audit",
+          "error",
+          "general",
+          "slowquery"
+        ],
+        "DeletionProtection": false,
+        "VpcSecurityGroupIds": "{% $states.input.VpcSecurityGroupIds %}"
+      },
+      "Resource": "arn:aws:states:::aws-sdk:rds:restoreDBClusterFromSnapshot",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "Next": "wait-restore",
+      "Output": {
+        "input": "{% $states.input %}",
+        "restore-result": "{% $states.result %}"
+      },
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "Next": "update-dynamodb-failure",
+          "Assign": {
+            "restore.errormsg": "{% $states.errorOutput %}"
+          }
+        }
+      ]
+    },
+    "perform-restore-from-snapshot-serverless": {
+      "Type": "Task",
+      "Arguments": {
+        "DbClusterIdentifier": "{% $states.input.TmpDbClusterIdentifier %}",
+        "Engine": "aurora-mysql",
+        "DbClusterInstanceClass": "{% $states.input.DbInstanceClass %}",
+        "ServerlessV2ScalingConfiguration": {
+          "MinCapacity": "{% $states.input.AuroraServerlessMinCapacity %}",
+          "MaxCapacity": "{% $states.input.AuroraServerlessMaxCapacity %}"
+        },
+        "EngineVersion": "{% $states.input.result-get-db-cluster-snapshot-infos.EngineVersion %}",
+        "SnapshotIdentifier": "{% $states.input.result-get-db-cluster-snapshot-infos.DBClusterSnapshotIdentifier %}",
+        "DbSubnetGroupName": "{% $states.input.DbSubnetGroupName %}",
+        "DbClusterParameterGroupName": "{% $states.input.DbClusterParameterGroupName %}",
+        "CopyTagsToSnapshot": true,
+        "EnableIAMDatabaseAuthentication": "False",
+        "EnableCloudwatchLogsExports": [
+          "audit",
+          "error",
+          "general",
+          "slowquery"
+        ],
+        "DeletionProtection": false,
+        "VpcSecurityGroupIds": "{% $states.input.VpcSecurityGroupIds %}"
+      },
+      "Resource": "arn:aws:states:::aws-sdk:rds:restoreDBClusterFromSnapshot",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "Next": "wait-restore",
+      "Output": {
+        "input": "{% $states.input %}",
+        "restore-result": "{% $states.result %}"
+      },
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "Next": "update-dynamodb-failure",
+          "Assign": {
+            "restore.errormsg": "{% $states.errorOutput %}"
+          }
+        }
+      ]
+    },
+    "perform-restore": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:restoreDBClusterToPointInTime",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "Arguments": {
+        "SourceDBClusterIdentifier": "{% $states.input.SourceDBClusterIdentifier %}",
+        "DbClusterIdentifier": "{% $states.input.TmpDbClusterIdentifier %}",
+        "RestoreType": "full-copy",
+        "UseLatestRestorableTime": true,
+        "Port": 3306,
+        "DbSubnetGroupName": "{% $states.input.DbSubnetGroupName %}",
+        "EnableIAMDatabaseAuthentication": "False",
+        "KmsKeyId": "{% $states.input.KmsKeyId %}",
+        "EnableCloudwatchLogsExports": [
+          "audit",
+          "error",
+          "general",
+          "slowquery"
+        ],
+        "CopyTagsToSnapshot": true,
+        "DbClusterParameterGroupName": "{% $states.input.DbClusterParameterGroupName %}",
+        "DeletionProtection": false,
+        "VpcSecurityGroupIds": "{% $states.input.VpcSecurityGroupIds %}"
+      },
+      "Next": "wait-restore",
+      "Output": {
+        "input": "{% $states.input %}",
+        "restore-result": "{% $states.result %}"
+      },
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "Next": "update-dynamodb-failure",
+          "Assign": {
+            "restore.errormsg": "{% $states.errorOutput %}"
+          }
+        }
+      ]
+    },
+    "wait-restore": {
+      "Type": "Wait",
+      "Seconds": 10,
+      "Next": "check-status-restore"
+    },
+    "check-status-restore": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:describeDBClusters",
+      "Arguments": {
+        "DbClusterIdentifier": "{% $states.input.TmpDbClusterIdentifier %}"
+      },
+      "Next": "outcome-restore",
+      "Output": {
+        "input": "{% $states.input %}",
+        "check-status-restore-result": {
+          "DbCluster": "{% $states.result.DbClusters[0] %}"
+        }
+      }
+    },
+    "outcome-restore": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $states.input.check-status-restore-result.DbCluster.Status = 'available' %}",
+          "Next": "tag-restored-cluster"
+        }
+      ],
+      "Default": "wait-restore"
+    },
+    "tag-restored-cluster": {
+      "Type": "Task",
+      "Arguments": {
+        "ResourceARNList": [
+          "{% $states.input.check-status-restore-result.DbCluster.DbClusterArn %}"
+        ],
+        "Tags": "{% $states.input.computeValues.Tags %}"
+      },
+      "Resource": "arn:aws:states:::aws-sdk:resourcegroupstaggingapi:tagResources",
+      "Output": {
+        "input": "{% $states.input %}",
+        "tag-restored-cluster-result": "{% $states.result %}"
+      },
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.Runtime",
+            "States.TaskFailed"
+          ],
+          "Next": "update-dynamodb-failure",
+          "Assign": {
+            "tag-restored-cluster-errormsg": "{% $states.errorOutput %}"
+          }
+        }
+      ],
+      "Next": "RESTORE-INSTANCE"
+    },
+    "RESTORE-INSTANCE": {
+      "Comment": "Restore steps",
+      "Type": "Pass",
+      "Next": "choice-restore-type-instance",
+      "Arguments": "{% $states.input %}"
+    },
+    "choice-restore-type-instance": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $states.input.RestoreType = 'from-snapshot' %}",
+          "Next": "create-instance"
+        },
+        {
+          "Condition": "{% $states.input.RestoreType = 'fast-clone' %}",
+          "Next": "create-instance"
+        }
+      ],
+      "Default": "wait-create-instance"
+    },
+    "create-instance": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:createDBInstance",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "Arguments": {
+        "DbClusterIdentifier": "{% $states.input.TmpDbClusterIdentifier %}",
+        "DbInstanceIdentifier": "{% $states.input.TmpDbInstanceIdentifier %}",
+        "DbInstanceClass": "{% $states.input.DbInstanceClass %}",
+        "Engine": "aurora-mysql",
+        "DbSubnetGroupName": "{% $states.input.DbSubnetGroupName %}",
+        "DbParameterGroupName": "{% $states.input.DbParameterGroupName %}",
+        "AutoMinorVersionUpgrade": false,
+        "PubliclyAccessible": false,
+        "CopyTagsToSnapshot": true
+      },
+      "Next": "wait-create-instance",
+      "Output": {
+        "input": "{% $states.input %}",
+        "createinstance-result": "{% $states.result %}"
+      },
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "Next": "update-dynamodb-failure",
+          "Assign": {
+            "createinstance.errormsg": "{% $states.errorOutput %}"
+          }
+        }
+      ]
+    },
+    "wait-create-instance": {
+      "Type": "Wait",
+      "Seconds": 10,
+      "Next": "check-status-create-instance"
+    },
+    "check-status-create-instance": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:describeDBInstances",
+      "Arguments": {
+        "DbInstanceIdentifier": "{% $states.input.TmpDbInstanceIdentifier %}"
+      },
+      "Next": "outcome-create-instance",
+      "Output": {
+        "input": "{% $states.input %}",
+        "check-status-create-instance-result": "{% $states.result %}"
+      }
+    },
+    "outcome-create-instance": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $states.input.check-status-create-instance-result.DbInstances[0].DbInstanceStatus = 'available' %}",
+          "Next": "tag-restored-instance"
+        }
+      ],
+      "Default": "wait-create-instance"
+    },
+    "tag-restored-instance": {
+      "Type": "Task",
+      "Arguments": {
+        "ResourceARNList": [
+          "{% $states.input.check-status-create-instance-result.DbInstances[0].DbInstanceArn %}"
+        ],
+        "Tags": "{% $states.input.computeValues.Tags %}"
+      },
+      "Resource": "arn:aws:states:::aws-sdk:resourcegroupstaggingapi:tagResources",
+      "Output": {
+        "input": "{% $states.input %}",
+        "tag-restored-instance-result": "{% $states.result %}"
+      },
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.Runtime",
+            "States.TaskFailed"
+          ],
+          "Next": "update-dynamodb-failure",
+          "Assign": {
+            "tag-restored-instance-errormsg": "{% $states.errorOutput %}"
+          }
+        }
+      ],
+      "Next": "choice-run-mysqldump-cluster"
+    },
+    "choice-run-mysqldump-cluster": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $states.input.RunMysqlDumpOldCluster = true %}",
+          "Next": "get-old-cluster-endpoint"
+        }
+      ],
+      "Default": "choice-delete-old-cluster"
+    },
+    "get-old-cluster-endpoint": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:describeDBClusters",
+      "Next": "get-old-database-master-user-secret-value",
+      "Arguments": {
+        "DbClusterIdentifier": "{% $states.input.DbClusterIdentifier %}"
+      },
+      "Output": {
+        "input": "{% $states.input %}",
+        "get-old-cluster-endpoint-result": {
+          "Endpoint": "{% $states.result.DbClusters[0].Endpoint %}"
+        }
+      },
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "Next": "update-dynamodb-failure",
+          "Assign": {
+            "get-old-cluster-endpoint.errormsg": "{% $states.errorOutput %}"
+          }
+        }
+      ]
+    },
+    "get-old-database-master-user-secret-value": {
+      "Type": "Task",
+      "Arguments": {
+        "SecretId": "{% $states.input.OldMasterUserSecretArn %}"
+      },
+      "Resource": "arn:aws:states:::aws-sdk:secretsmanager:getSecretValue",
+      "Next": "format-old-master-user-secret-string",
+      "Output": {
+        "input": "{% $states.input %}",
+        "get-old-database-master-user-secret-value-result": "{% $states.result %}"
+      }
+    },
+    "format-old-master-user-secret-string": {
+      "Type": "Pass",
+      "Arguments": {
+        "input": "{% $states.input %}",
+        "format-old-master-user-secret-string": {
+          "SecretString": "{% $parse($states.input.get-old-database-master-user-secret-value-result.SecretString) %}"
+        }
+      },
+      "Next": "get-cluster-info"
+    },
+    "get-cluster-info": {
+      "Type": "Task",
+      "Next": "map-eks-mysqldump-job",
+      "Credentials": {
+        "RoleArn": "{% $states.input.EksRoleArn %}"
+      },
+      "Arguments": {
+        "Name": "{% $states.input.EksClusterName %}"
+      },
+      "Resource": "arn:aws:states:::aws-sdk:eks:describeCluster",
+      "Output": {
+        "input": "{% $states.input %}",
+        "Eks": "{% $states.result %}"
+      }
+    },
+    "map-eks-mysqldump-job": {
+      "Type": "Map",
+      "ItemsPath": "{% $states.input.MysqlTables %}",
+      "ItemSelector": {
+        "Name": "{% $$.Map.Item.Index %}",
+        "Endpoint": "{% $states.input.get-old-cluster-endpoint-result.Endpoint %}",
+        "Username": "{% $states.input.format-old-master-user-secret-string.SecretString.username %}",
+        "Password": "{% $states.input.format-old-master-user-secret-string.SecretString.password %}",
+        "Database": "{% $$.Map.Item.Value.Database %}",
+        "Table": "{% $$.Map.Item.Value.Table %}",
+        "Namespace": "{% $states.input.EksNamespace %}",
+        "EksNodeSelector": "{% $states.input.EksNodeSelector %}",
+        "EksTolerations": "{% $states.input.EksTolerations %}",
+        "EfsName": "{% $states.input.EfsName %}",
+        "EksRoleArn": "{% $states.input.EksRoleArn %}",
+        "Eks": "{% $states.input.Eks %}",
+        "Date": "{% $states.input.computeValues.Date %}"
+      },
+      "ItemProcessor": {
+        "ProcessorConfig": {
+          "Mode": "INLINE"
+        },
+        "StartAt": "run-eks-mysqldump-job",
+        "States": {
+          "run-eks-mysqldump-job": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::eks:runJob.sync",
+            "Arguments": {
+              "ClusterName": "{% $states.input.Eks.Cluster.Name %}",
+              "CertificateAuthority": "{% $states.input.Eks.Cluster.CertificateAuthority.Data %}",
+              "Endpoint": "{% $states.input.Eks.Cluster.Endpoint %}",
+              "Namespace": "{% $states.input.Namespace %}",
+              "Job": {
+                "apiVersion": "batch/v1",
+                "kind": "Job",
+                "metadata": {
+                  "name": "{% 'refresh-mysqldump-' & $states.input.Date & '-' & $states.input.Name %}",
+                  "namespace": "{% $states.input.Namespace %}"
+                },
+                "spec": {
+                  "template": {
+                    "metadata": {
+                      "name": "refresh-mysqldump"
+                    },
+                    "spec": {
+                      "serviceAccountName": "refresh",
+                      "nodeSelector": "{% $states.input.EksNodeSelector %}",
+                      "tolerations": "{% $states.input.EksTolerations %}",
+                      "volumes": [
+                        {
+                          "name": "shared-data",
+                          "persistentVolumeClaim": {
+                            "claimName": "{% $states.input.EfsName %}"
+                          }
+                        }
+                      ],
+                      "containers": [
+                        {
+                          "name": "mysqldump",
+                          "image": "akirosit/mysql-s3:latest",
+                          "imagePullPolicy": "Always",
+                          "command": [
+                            "/dump.sh"
+                          ],
+                          "volumeMounts": [
+                            {
+                              "name": "shared-data",
+                              "mountPath": "/refresh",
+                              "subPath": "{% 'refresh-mysqldump-' & $states.input.Namespace & '-' & $states.input.Date %}"
+                            }
+                          ],
+                          "env": [
+                            {
+                              "name": "TZ",
+                              "value": "Europe/Paris"
+                            },
+                            {
+                              "name": "MYSQL_HOST",
+                              "value": "{% $states.input.Endpoint %}"
+                            },
+                            {
+                              "name": "MYSQL_USER",
+                              "value": "{% $states.input.Username %}"
+                            },
+                            {
+                              "name": "MYSQL_PASSWORD",
+                              "value": "{% $states.input.Password %}"
+                            },
+                            {
+                              "name": "MYSQL_DATABASE",
+                              "value": "{% $states.input.Database %}"
+                            },
+                            {
+                              "name": "MYSQL_TABLE",
+                              "value": "{% $states.input.Table %}"
+                            },
+                            {
+                              "name": "LOCAL_DIR",
+                              "value": "/refresh"
+                            }
+                          ]
+                        }
+                      ],
+                      "restartPolicy": "Never"
+                    }
+                  }
+                }
+              }
+            },
+            "End": true,
+            "Credentials": {
+              "RoleArn": "{% $states.input.EksRoleArn %}"
+            }
+          }
+        }
+      },
+      "Output": {
+        "input": "{% $states.input %}",
+        "map-eks-mysqldump-job": "{% $states.result %}"
+      },
+      "Next": "choice-run-scripts-old-cluster",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "Next": "update-dynamodb-failure",
+          "Assign": {
+            "map-eks-mysqldump-job-errormsg": "{% $states.errorOutput %}"
+          }
+        }
+      ]
+    },
+    "choice-run-scripts-old-cluster": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $states.input.RunSqlScriptsOldCluster = true %}",
+          "Next": "run-sql-scripts-old-cluster"
+        }
+      ],
+      "Default": "choice-delete-old-cluster"
+    },
+    "run-sql-scripts-old-cluster": {
+      "Type": "Map",
+      "ItemReader": {
+        "Resource": "arn:aws:states:::s3:listObjectsV2",
+        "Parameters": {
+          "Bucket": "{% $states.input.RefreshBucket %}",
+          "Prefix": "{% $states.input.RefreshBucketPrefixOldCluster & '/' %}"
+        }
+      },
+      "ItemSelector": {
+        "cluster": "{% $states.input.DbClusterIdentifier %}",
+        "dbname": "{% $states.input.OldDatabaseName %}",
+        "secretname": "{% $states.input.OldMasterUserSecretArn %}",
+        "bucketname": "{% $states.input.RefreshBucket %}",
+        "key": "{% $$.Map.Item.Value.Key %}"
+      },
+      "MaxConcurrency": 1,
+      "ItemProcessor": {
+        "ProcessorConfig": {
+          "Mode": "DISTRIBUTED",
+          "ExecutionType": "STANDARD"
+        },
+        "StartAt": "lambda-pre-sql-script",
+        "States": {
+          "lambda-pre-sql-script": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Output": "{% $states.result.Payload %}",
+            "Arguments": {
+              "FunctionName": "${awssoldb-RunScriptsMySQL}",
+              "Payload": {
+                "cluster": "{% $states.input.cluster %}",
+                "dbname": "{% $states.input.dbname %}",
+                "secretname": "{% $states.input.secretname %}",
+                "bucketname": "{% $states.input.bucketname %}",
+                "key": "{% $states.input.key %}"
+              }
+            },
+            "Retry": [
+              {
+                "ErrorEquals": [
+                  "Lambda.ServiceException",
+                  "Lambda.AWSLambdaException",
+                  "Lambda.SdkClientException",
+                  "Lambda.TooManyRequestsException"
+                ],
+                "IntervalSeconds": 1,
+                "MaxAttempts": 3,
+                "BackoffRate": 2
+              }
+            ],
+            "End": true
+          }
+        }
+      },
+      "Label": "S3Preobjectkeys",
+      "Output": {
+        "input": "{% $states.input %}",
+        "run-sql-scripts-old-cluster-result": "{% $states.result %}"
+      },
+      "Next": "choice-delete-old-cluster",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "Next": "update-dynamodb-failure",
+          "Assign": {
+            "run-sql-scripts-old-cluster-errormsg": "{% $states.errorOutput %}"
+          }
+        }
+      ]
+    },
+    "choice-delete-old-cluster": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $states.input.DeleteOldCluster = true %}",
+          "Next": "DELETE-OLD-CLUSTER"
+        }
+      ],
+      "Default": "choice-rename-old-cluster"
+    },
+    "choice-rename-old-cluster": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $states.input.RenameOldCluster = true %}",
+          "Next": "RENAME-OLD-CLUSTER"
+        }
+      ],
+      "Default": "POST-RESTORE-SCRIPTS"
+    },
+    "DELETE-OLD-CLUSTER": {
+      "Comment": "Post-restore steps",
+      "Type": "Pass",
+      "Next": "get-old-database-arn",
+      "Arguments": "{% $states.input %}"
+    },
+    "get-old-database-arn": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:describeDBInstances",
+      "Arguments": {
+        "DbInstanceIdentifier": "{% $states.input.DbInstanceIdentifier %}"
+      },
+      "Next": "check-old-database-tags",
+      "Output": {
+        "input": "{% $states.input %}",
+        "get-old-database-arn-result": {
+          "ResourceName": "{% $states.result.DbInstances[0].DbInstanceArn %}"
+        }
+      },
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "Next": "update-dynamodb-failure",
+          "Assign": {
+            "get-old-database-arn.errormsg": "{% $states.errorOutput %}"
+          }
+        }
+      ]
+    },
+    "check-old-database-tags": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:listTagsForResource",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "Arguments": {
+        "ResourceName": "{% $states.input.get-old-database-arn-result.ResourceName %}"
+      },
+      "Output": {
+        "input": "{% $states.input %}",
+        "check-old-database-tags-result": {
+          "TagRefresh": "{% $states.result.TagList[?(@.Key=='refresh')].Value[0] %}"
+        }
+      },
+      "Next": "outcome-check-old-database-tags",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "Next": "update-dynamodb-failure",
+          "Assign": {
+            "check-old-database-tags.errormsg": "{% $states.errorOutput %}"
+          }
+        }
+      ]
+    },
+    "outcome-check-old-database-tags": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $states.input.check-old-database-tags-result.TagRefresh = 'true' %}",
+          "Next": "delete-old-database"
+        }
+      ],
+      "Default": "update-dynamodb-failure"
+    },
+    "delete-old-database": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:deleteDBInstance",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "Arguments": {
+        "DbInstanceIdentifier": "{% $states.input.DbInstanceIdentifier %}",
+        "SkipFinalSnapshot": true,
+        "DeleteAutomatedBackups": false
+      },
+      "Output": {
+        "input": "{% $states.input %}",
+        "delete-old-database-result": "{% $states.result %}"
+      },
+      "Next": "wait-delete-old-database",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "Next": "update-dynamodb-failure",
+          "Assign": {
+            "delete.errormsg": "{% $states.errorOutput %}"
+          }
+        }
+      ]
+    },
+    "wait-delete-old-database": {
+      "Type": "Wait",
+      "Seconds": 10,
+      "Next": "check-status-delete-old-database"
+    },
+    "check-status-delete-old-database": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:describeDBInstances",
+      "Arguments": {
+        "DbInstanceIdentifier": "{% $states.input.DbInstanceIdentifier %}"
+      },
+      "Next": "wait-delete-old-database",
+      "Output": {
+        "input": "{% $states.input %}",
+        "check-status-delete-old-database-result": "{% $states.result %}"
+      },
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "Next": "get-old-cluster-arn",
+          "Assign": {
+            "check-status-delete-old-database.errormsg": "{% $states.errorOutput %}"
+          }
+        }
+      ]
+    },
+    "get-old-cluster-arn": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:describeDBClusters",
+      "Next": "check-old-cluster-tags",
+      "Arguments": {
+        "DbClusterIdentifier": "{% $states.input.DbClusterIdentifier %}"
+      },
+      "Output": {
+        "input": "{% $states.input %}",
+        "get-old-cluster-arn-result": {
+          "ResourceName": "{% $states.result.DbClusters[0].DbClusterArn %}"
+        }
+      },
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "Next": "update-dynamodb-failure",
+          "Assign": {
+            "get-old-cluster-arn.errormsg": "{% $states.errorOutput %}"
+          }
+        }
+      ]
+    },
+    "check-old-cluster-tags": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:listTagsForResource",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "Arguments": {
+        "ResourceName": "{% $states.input.get-old-cluster-arn-result.ResourceName %}"
+      },
+      "Output": {
+        "input": "{% $states.input %}",
+        "check-old-cluster-tags-result": {
+          "TagRefresh": "{% $states.result.TagList[?(@.Key=='refresh')].Value[0] %}"
+        }
+      },
+      "Next": "outcome-check-old-cluster-tags",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "Next": "update-dynamodb-failure",
+          "Assign": {
+            "check-old-cluster-tags.errormsg": "{% $states.errorOutput %}"
+          }
+        }
+      ]
+    },
+    "outcome-check-old-cluster-tags": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $states.input.check-old-cluster-tags-result.TagRefresh = 'true' %}",
+          "Next": "delete-old-cluster"
+        }
+      ],
+      "Default": "update-dynamodb-failure"
+    },
+    "delete-old-cluster": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:deleteDBCluster",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "Arguments": {
+        "DbClusterIdentifier": "{% $states.input.DbClusterIdentifier %}",
+        "SkipFinalSnapshot": true
+      },
+      "Output": {
+        "input": "{% $states.input %}",
+        "delete-old-cluster-result": "{% $states.result %}"
+      },
+      "Next": "wait-delete-old-cluster",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "Next": "update-dynamodb-failure",
+          "Assign": {
+            "delete-old-cluster.errormsg": "{% $states.errorOutput %}"
+          }
+        }
+      ]
+    },
+    "wait-delete-old-cluster": {
+      "Type": "Wait",
+      "Seconds": 10,
+      "Next": "check-status-delete-old-cluster"
+    },
+    "check-status-delete-old-cluster": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:describeDBClusters",
+      "Next": "wait-delete-old-cluster",
+      "Arguments": {
+        "DbClusterIdentifier": "{% $states.input.DbClusterIdentifier %}"
+      },
+      "Output": {
+        "input": "{% $states.input %}",
+        "check-status-delete-old-cluster-result": "{% $states.result %}"
+      },
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "Next": "POST-RESTORE-SCRIPTS",
+          "Assign": {
+            "check-status-delete-old-cluster.errormsg": "{% $states.errorOutput %}"
+          }
+        }
+      ]
+    },
+    "RENAME-OLD-CLUSTER": {
+      "Comment": "Post-restore steps",
+      "Type": "Pass",
+      "Next": "rename-old-cluster",
+      "Arguments": "{% $states.input %}"
+    },
+    "rename-old-cluster": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:modifyDBCluster",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "Arguments": {
+        "DbClusterIdentifier": "{% $states.input.DbClusterIdentifier %}",
+        "NewDBClusterIdentifier": "{% $states.input.OldDbClusterIdentifier %}",
+        "ApplyImmediately": true
+      },
+      "Output": {
+        "input": "{% $states.input %}",
+        "rename-old-cluster-result": "{% $states.result %}"
+      },
+      "Next": "wait-rename-old-cluster",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "An error occurred (InvalidDBClusterStateFault) when calling the ModifyDBCluster operation: DB cluster is not available for modification with status backing-up"
+          ],
+          "IntervalSeconds": 60,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "Next": "update-dynamodb-failure",
+          "Assign": {
+            "rename-old-cluster.errormsg": "{% $states.errorOutput %}"
+          }
+        }
+      ]
+    },
+    "wait-rename-old-cluster": {
+      "Type": "Wait",
+      "Seconds": 10,
+      "Next": "check-status-rename-old-cluster"
+    },
+    "check-status-rename-old-cluster": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:describeDBClusters",
+      "Next": "outcome-rename-old-cluster",
+      "Arguments": {
+        "DbClusterIdentifier": "{% $states.input.OldDbClusterIdentifier %}"
+      },
+      "Output": {
+        "input": "{% $states.input %}",
+        "check-status-rename-old-cluster-result": "{% $states.result %}"
+      },
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "Next": "wait-rename-old-cluster",
+          "Assign": {
+            "check-status-rename-old-cluster-errormsg": "{% $states.errorOutput %}"
+          }
+        }
+      ]
+    },
+    "outcome-rename-old-cluster": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $states.input.check-status-rename-old-cluster-result.DbClusters[0].Status = 'available' %}",
+          "Next": "rename-old-database"
+        }
+      ],
+      "Default": "wait-rename-old-cluster"
+    },
+    "rename-old-database": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:modifyDBInstance",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "Arguments": {
+        "DbInstanceIdentifier": "{% $states.input.DbInstanceIdentifier %}",
+        "NewDBInstanceIdentifier": "{% $states.input.OldDbInstanceIdentifier %}",
+        "ApplyImmediately": true
+      },
+      "Output": {
+        "input": "{% $states.input %}",
+        "rename-old-result": "{% $states.result %}"
+      },
+      "Next": "wait-old-rename",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "Next": "update-dynamodb-failure",
+          "Assign": {
+            "rename-old.errormsg": "{% $states.errorOutput %}"
+          }
+        }
+      ]
+    },
+    "wait-old-rename": {
+      "Type": "Wait",
+      "Seconds": 10,
+      "Next": "check-status-old-rename"
+    },
+    "check-status-old-rename": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:describeDBInstances",
+      "Next": "outcome-old-rename",
+      "Arguments": {
+        "DbInstanceIdentifier": "{% $states.input.OldDbInstanceIdentifier %}"
+      },
+      "Output": {
+        "input": "{% $states.input %}",
+        "check-status-old-rename-result": "{% $states.result %}"
+      },
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "Next": "wait-old-rename",
+          "Assign": {
+            "check-status-old-rename-errormsg": "{% $states.errorOutput %}"
+          }
+        }
+      ]
+    },
+    "outcome-old-rename": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $states.input.check-status-old-rename-result.DbInstances[0].DbInstanceStatus = 'available' %}",
+          "Next": "stop-old-db-cluster"
+        }
+      ],
+      "Default": "wait-old-rename"
+    },
+    "stop-old-db-cluster": {
+      "Type": "Task",
+      "Next": "POST-RESTORE-SCRIPTS",
+      "Arguments": {
+        "DbClusterIdentifier": "{% $states.input.OldDbClusterIdentifier %}"
+      },
+      "Resource": "arn:aws:states:::aws-sdk:rds:stopDBCluster",
+      "Output": {
+        "input": "{% $states.input %}",
+        "stop-old-db-cluster-result": "{% $states.result %}"
+      },
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "Next": "update-dynamodb-failure",
+          "Assign": {
+            "stop-old-db-cluster-errormsg": "{% $states.errorOutput %}"
+          }
+        }
+      ]
+    },
+    "POST-RESTORE-SCRIPTS": {
+      "Comment": "Restore steps",
+      "Type": "Pass",
+      "Next": "choice-add-role-to-cluster",
+      "Arguments": "{% $states.input %}"
+    },
+    "choice-add-role-to-cluster": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $states.input.RestoreType = 'from-snapshot' %}",
+          "Next": "add-role-to-cluster"
+        },
+        {
+          "Condition": "{% $states.input.RestoreType = 'fast-clone' %}",
+          "Next": "add-role-to-cluster"
+        }
+      ],
+      "Default": "wait-add-role-to-cluster"
+    },
+    "add-role-to-cluster": {
+      "Type": "Task",
+      "Next": "add-role-to-cluster-pg",
+      "Arguments": {
+        "DbClusterIdentifier": "{% $states.input.TmpDbClusterIdentifier %}",
+        "RoleArn": "{% $states.input.RDSRoleArn %}"
+      },
+      "Resource": "arn:aws:states:::aws-sdk:rds:addRoleToDBCluster",
+      "Output": {
+        "input": "{% $states.input %}",
+        "add-role-to-cluster-result": "{% $states.result %}"
+      },
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "Rds.DbClusterRoleAlreadyExistsException"
+          ],
+          "Next": "add-role-to-cluster-pg"
+        },
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "Next": "update-dynamodb-failure",
+          "Assign": {
+            "renamecluster.errormsg": "{% $states.errorOutput %}"
+          }
+        }
+      ]
+    },
+    "add-role-to-cluster-pg": {
+      "Type": "Task",
+      "Next": "wait-add-role-to-cluster",
+      "Arguments": {
+        "DbClusterParameterGroupName": "{% $states.input.DbClusterParameterGroupName %}",
+        "Parameters": [
+          {
+            "ParameterName": "aws_default_s3_role",
+            "ParameterValue": "{% $states.input.RDSRoleArn %}",
+            "ApplyMethod": "immediate"
+          }
+        ]
+      },
+      "Resource": "arn:aws:states:::aws-sdk:rds:modifyDBClusterParameterGroup",
+      "Output": {
+        "input": "{% $states.input %}",
+        "add-role-to-cluster-pg-result": "{% $states.result %}"
+      },
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "Next": "update-dynamodb-failure",
+          "Assign": {
+            "renamecluster.errormsg": "{% $states.errorOutput %}"
+          }
+        }
+      ]
+    },
+    "wait-add-role-to-cluster": {
+      "Type": "Wait",
+      "Seconds": 30,
+      "Next": "check-status-add-role-to-cluster"
+    },
+    "check-status-add-role-to-cluster": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:describeDBClusters",
+      "Next": "outcome-add-role-to-cluster-status",
+      "Arguments": {
+        "DbClusterIdentifier": "{% $states.input.TmpDbClusterIdentifier %}"
+      },
+      "Output": {
+        "input": "{% $states.input %}",
+        "check-status-add-role-to-cluster-result": "{% $states.result %}"
+      },
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "Next": "wait-add-role-to-cluster",
+          "Assign": {
+            "check-status-add-role-to-cluster-errormsg": "{% $states.errorOutput %}"
+          }
+        }
+      ]
+    },
+    "outcome-add-role-to-cluster-status": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $states.input.check-status-add-role-to-cluster-result.DbClusters[0].Status = 'available' %}",
+          "Next": "outcome-add-role-to-cluster-associated-roles-status"
+        }
+      ],
+      "Default": "wait-add-role-to-cluster"
+    },
+    "outcome-add-role-to-cluster-associated-roles-status": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $states.input.check-status-add-role-to-cluster-result.DbClusters[0].AssociatedRoles[0].Status = 'ACTIVE' %}",
+          "Next": "enable-master-user-secret"
+        }
+      ],
+      "Default": "wait-add-role-to-cluster"
+    },
+    "enable-master-user-secret": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:modifyDBCluster",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "Arguments": {
+        "DbClusterIdentifier": "{% $states.input.TmpDbClusterIdentifier %}",
+        "ManageMasterUserPassword": true,
+        "MasterUserSecretKmsKeyId": "{% $states.input.MasterUserSecretKmsKeyId %}",
+        "ApplyImmediately": true
+      },
+      "Output": {
+        "input": "{% $states.input %}",
+        "enable-master-user-secret-result": "{% $states.result %}"
+      },
+      "Next": "wait-enable-master-user-secret",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "An error occurred (InvalidDBClusterStateFault) when calling the ModifyDBCluster operation: DB cluster is not available for modification with status backing-up"
+          ],
+          "IntervalSeconds": 60,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "Next": "update-dynamodb-failure",
+          "Assign": {
+            "renamecluster.errormsg": "{% $states.errorOutput %}"
+          }
+        }
+      ]
+    },
+    "wait-enable-master-user-secret": {
+      "Type": "Wait",
+      "Seconds": 300,
+      "Next": "check-status-enable-master-user-secret"
+    },
+    "check-status-enable-master-user-secret": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:describeDBClusters",
+      "Next": "outcome-enable-master-user-secret",
+      "Arguments": {
+        "DbClusterIdentifier": "{% $states.input.TmpDbClusterIdentifier %}"
+      },
+      "Output": {
+        "input": "{% $states.input %}",
+        "check-status-enable-master-user-secret-result": "{% $states.result %}"
+      },
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "Next": "wait-enable-master-user-secret",
+          "Assign": {
+            "check-status-enable-master-user-secret-errormsg": "{% $states.errorOutput %}"
+          }
+        }
+      ]
+    },
+    "outcome-enable-master-user-secret": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $states.input.check-status-enable-master-user-secret-result.DbClusters[0].Status = 'available' %}",
+          "Next": "choice-run-mysqlimport-cluster"
+        }
+      ],
+      "Default": "rotate-database-users-secrets"
+    },
+    "choice-run-mysqlimport-cluster": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $states.input.RunMysqlImportCluster = true %}",
+          "Next": "get-cluster-endpoint"
+        }
+      ],
+      "Default": "choice-run-scripts"
+    },
+    "get-cluster-endpoint": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:describeDBClusters",
+      "Next": "get-database-master-user-secret-value",
+      "Arguments": {
+        "DbClusterIdentifier": "{% $states.input.TmpDbClusterIdentifier %}"
+      },
+      "Output": {
+        "input": "{% $states.input %}",
+        "get-cluster-endpoint-result": {
+          "Endpoint": "{% $states.result.DbClusters[0].Endpoint %}"
+        }
+      },
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "Next": "update-dynamodb-failure",
+          "Assign": {
+            "get-cluster-endpoint.errormsg": "{% $states.errorOutput %}"
+          }
+        }
+      ]
+    },
+    "get-database-master-user-secret-value": {
+      "Type": "Task",
+      "Arguments": {
+        "SecretId": "{% $states.input.enable-master-user-secret-result.DbCluster.MasterUserSecret.SecretArn %}"
+      },
+      "Resource": "arn:aws:states:::aws-sdk:secretsmanager:getSecretValue",
+      "Next": "format-master-user-secret-string",
+      "Output": {
+        "input": "{% $states.input %}",
+        "get-database-master-user-secret-value-result": "{% $states.result %}"
+      }
+    },
+    "format-master-user-secret-string": {
+      "Type": "Pass",
+      "Arguments": {
+        "input": "{% $states.input %}",
+        "format-master-user-secret-string": {
+          "SecretString": "{% $parse($states.input.get-database-master-user-secret-value-result.SecretString) %}"
+        }
+      },
+      "Next": "get-cluster-info-import"
+    },
+    "get-cluster-info-import": {
+      "Type": "Task",
+      "Next": "run-eks-mysqlimport-job",
+      "Credentials": {
+        "RoleArn": "{% $states.input.EksRoleArn %}"
+      },
+      "Arguments": {
+        "Name": "{% $states.input.EksClusterName %}"
+      },
+      "Resource": "arn:aws:states:::aws-sdk:eks:describeCluster",
+      "Output": {
+        "input": "{% $states.input %}",
+        "Eks": "{% $states.result %}"
+      }
+    },
+    "run-eks-mysqlimport-job": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::eks:runJob.sync",
+      "Credentials": {
+        "RoleArn": "{% $states.input.EksRoleArn %}"
+      },
+      "Arguments": {
+        "ClusterName": "{% $states.input.Eks.Cluster.Name %}",
+        "CertificateAuthority": "{% $states.input.Eks.Cluster.CertificateAuthority.Data %}",
+        "Endpoint": "{% $states.input.Eks.Cluster.Endpoint %}",
+        "Namespace": "{% $states.input.EksNamespace %}",
+        "Job": {
+          "apiVersion": "batch/v1",
+          "kind": "Job",
+          "metadata": {
+            "name": "{% 'refresh-mysqlimport-' & $states.input.computeValues.Date %}",
+            "namespace": "{% $states.input.EksNamespace %}"
+          },
+          "spec": {
+            "template": {
+              "metadata": {
+                "name": "refresh-mysqlimport"
+              },
+              "spec": {
+                "serviceAccountName": "refresh",
+                "nodeSelector": "{% $states.input.EksNodeSelector %}",
+                "tolerations": "{% $states.input.EksTolerations %}",
+                "volumes": [
+                  {
+                    "name": "shared-data",
+                    "persistentVolumeClaim": {
+                      "claimName": "{% $states.input.EfsName %}"
+                    }
+                  }
+                ],
+                "containers": [
+                  {
+                    "name": "mysqlimport",
+                    "image": "akirosit/mysql-s3:latest",
+                    "imagePullPolicy": "Always",
+                    "command": [
+                      "/import.sh"
+                    ],
+                    "volumeMounts": [
+                      {
+                        "name": "shared-data",
+                        "mountPath": "/refresh",
+                        "subPath": "{% 'refresh-mysqldump-' & $states.input.EksNamespace & '-' & $states.input.computeValues.Date %}"
+                      }
+                    ],
+                    "env": [
+                      {
+                        "name": "TZ",
+                        "value": "Europe/Paris"
+                      },
+                      {
+                        "name": "MYSQL_HOST",
+                        "value": "{% $states.input.get-cluster-endpoint-result.Endpoint %}"
+                      },
+                      {
+                        "name": "MYSQL_USER",
+                        "value": "{% $states.input.format-master-user-secret-string.SecretString.username %}"
+                      },
+                      {
+                        "name": "MYSQL_PASSWORD",
+                        "value": "{% $states.input.format-master-user-secret-string.SecretString.password %}"
+                      },
+                      {
+                        "name": "MYSQL_DATABASE",
+                        "value": "{% $states.input.DatabaseName %}"
+                      },
+                      {
+                        "name": "LOCAL_DIR",
+                        "value": "/refresh"
+                      },
+                      {
+                        "name": "S3_SYNC",
+                        "value": "true"
+                      },
+                      {
+                        "name": "S3_BUCKET",
+                        "value": "{% $states.input.RefreshBucket %}"
+                      },
+                      {
+                        "name": "S3_PREFIX",
+                        "value": "{% $states.input.RefreshBucketPrefix %}"
+                      }
+                    ]
+                  }
+                ],
+                "restartPolicy": "Never"
+              }
+            }
+          }
+        }
+      },
+      "Output": {
+        "input": "{% $states.input %}",
+        "run-eks-mysqlimport-job": "{% $states.result %}"
+      },
+      "Next": "choice-run-scripts"
+    },
+    "choice-run-scripts": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $states.input.RunSqlScripts = true %}",
+          "Next": "run-sql-scripts"
+        }
+      ],
+      "Default": "POST-RESTORE-RENAME"
+    },
+    "run-sql-scripts": {
+      "Type": "Map",
+      "ItemReader": {
+        "Resource": "arn:aws:states:::s3:listObjectsV2",
+        "Parameters": {
+          "Bucket": "{% $states.input.RefreshBucket %}",
+          "Prefix": "{% $states.input.RefreshBucketPrefix & '/' %}"
+        }
+      },
+      "ItemSelector": {
+        "cluster": "{% $states.input.TmpDbClusterIdentifier %}",
+        "dbname": "{% $states.input.DatabaseName %}",
+        "secretname": "{% $states.input.enable-master-user-secret-result.DbCluster.MasterUserSecret.SecretArn %}",
+        "bucketname": "{% $states.input.RefreshBucket %}",
+        "key": "{% $$.Map.Item.Value.Key %}"
+      },
+      "MaxConcurrency": 1,
+      "ItemProcessor": {
+        "ProcessorConfig": {
+          "Mode": "DISTRIBUTED",
+          "ExecutionType": "STANDARD"
+        },
+        "StartAt": "lambda-sql-script",
+        "States": {
+          "lambda-sql-script": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Output": "{% $states.result.Payload %}",
+            "Arguments": {
+              "FunctionName": "${awssoldb-RunScriptsMySQL}",
+              "Payload": {
+                "cluster": "{% $states.input.cluster %}",
+                "dbname": "{% $states.input.dbname %}",
+                "secretname": "{% $states.input.secretname %}",
+                "bucketname": "{% $states.input.bucketname %}",
+                "key": "{% $states.input.key %}"
+              }
+            },
+            "Retry": [
+              {
+                "ErrorEquals": [
+                  "Lambda.ServiceException",
+                  "Lambda.AWSLambdaException",
+                  "Lambda.SdkClientException",
+                  "Lambda.TooManyRequestsException",
+                  "Lambda.Unknown"
+                ],
+                "IntervalSeconds": 300,
+                "MaxAttempts": 3,
+                "BackoffRate": 2
+              }
+            ],
+            "End": true
+          }
+        }
+      },
+      "Label": "S3objectkeys",
+      "Output": {
+        "input": "{% $states.input %}",
+        "run-sql-scripts-result": "{% $states.result %}"
+      },
+      "Next": "rotate-database-users-secrets",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "Next": "update-dynamodb-failure",
+          "Assign": {
+            "run-sql-scripts-errormsg": "{% $states.errorOutput %}"
+          }
+        }
+      ]
+    },
+    "rotate-database-users-secrets": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $states.input.RotateDatabaseUsersSecrets = true %}",
+          "Next": "map-database-users"
+        }
+      ],
+      "Default": "POST-RESTORE-RENAME"
+    },
+    "map-database-users": {
+      "Type": "Map",
+      "ItemProcessor": {
+        "ProcessorConfig": {
+          "Mode": "INLINE"
+        },
+        "StartAt": "get-database-source-user-secret-value",
+        "States": {
+          "get-database-source-user-secret-value": {
+            "Type": "Task",
+            "Arguments": {
+              "SecretId": "{% $states.input.SourceSecretId %}"
+            },
+            "Resource": "arn:aws:states:::aws-sdk:secretsmanager:getSecretValue",
+            "Next": "format-secret-string",
+            "Catch": [
+              {
+                "ErrorEquals": [
+                  "SecretsManager.ResourceNotFoundException"
+                ],
+                "Next": "get-database-user-secret-value",
+                "Assign": {
+                  "get-database-source-user-secret-value-result": "{% $states.errorOutput %}"
+                }
+              }
+            ],
+            "Output": {
+              "input": "{% $states.input %}",
+              "get-database-source-user-secret-value-result": "{% $states.result %}"
+            }
+          },
+          "format-secret-string": {
+            "Type": "Pass",
+            "Arguments": {
+              "input": "{% $states.input %}",
+              "format-secret-string": {
+                "SecretString": "{% $parse($states.input.get-database-source-user-secret-value-result.SecretString) %}"
+              }
+            },
+            "Next": "get-database-user-secret-value"
+          },
+          "get-database-user-secret-value": {
+            "Type": "Task",
+            "Arguments": {
+              "SecretId": "{% $states.input.SecretId %}"
+            },
+            "Resource": "arn:aws:states:::aws-sdk:secretsmanager:getSecretValue",
+            "Next": "update-secret",
+            "Catch": [
+              {
+                "ErrorEquals": [
+                  "SecretsManager.ResourceNotFoundException"
+                ],
+                "Next": "create-secret",
+                "Assign": {
+                  "get-database-user-secret-value-result": "{% $states.errorOutput %}"
+                }
+              }
+            ],
+            "Output": {
+              "input": "{% $states.input %}",
+              "get-database-user-secret-value-result": "{% $states.result %}"
+            }
+          },
+          "update-secret": {
+            "Type": "Task",
+            "Arguments": {
+              "SecretId": "{% $states.input.SecretId %}",
+              "ClientRequestToken": "{% $uuid() %}",
+              "SecretString": {
+                "username": "{% $states.input.Username %}",
+                "password": "{% $states.input.format-secret-string.SecretString.password %}",
+                "engine": "{% $states.input.Engine %}",
+                "host": "{% $states.input.Endpoint %}",
+                "host_ro": "{% $states.input.ReaderEndpoint %}",
+                "port": "{% $states.input.Port %}",
+                "dbname": "{% $states.input.DatabaseName %}",
+                "jdbcUrl": "{% 'jdbc:mysql://' & $states.input.Endpoint & '/' & $states.input.DatabaseName & '?' & $states.input.jdbcOptions %}",
+                "jdbcReadOnlyUrl": "{% 'jdbc:mysql://' & $states.input.ReaderEndpoint & '/' & $states.input.DatabaseName & '?' & $states.input.jdbcOptions %}",
+                "masterarn": "{% $states.input.MasterArn %}",
+                "dbClusterIdentifier": "{% $states.input.DbClusterIdentifier %}"
+              }
+            },
+            "Resource": "arn:aws:states:::aws-sdk:secretsmanager:putSecretValue",
+            "Next": "rotate-secret",
+            "Output": {
+              "input": "{% $states.input %}",
+              "secret-result": "{% $states.result %}"
+            }
+          },
+          "create-secret": {
+            "Type": "Task",
+            "Arguments": {
+              "Name": "{% $states.input.SecretId %}",
+              "ClientRequestToken": "{% $uuid() %}",
+              "KmsKeyId": "{% $states.input.KmsKeyId %}",
+              "SecretString": {
+                "username": "{% $states.input.Username %}",
+                "password": "{% $states.input.format-secret-string.SecretString.password %}",
+                "engine": "{% $states.input.Engine %}",
+                "host": "{% $states.input.Endpoint %}",
+                "host_ro": "{% $states.input.ReaderEndpoint %}",
+                "port": "{% $states.input.Port %}",
+                "dbname": "{% $states.input.DatabaseName %}",
+                "jdbcUrl": "{% 'jdbc:mysql://' & $states.input.Endpoint & '/' & $states.input.DatabaseName & '?' & $states.input.jdbcOptions %}",
+                "jdbcReadOnlyUrl": "{% 'jdbc:mysql://' & $states.input.ReaderEndpoint & '/' & $states.input.DatabaseName & '?' & $states.input.jdbcOptions %}",
+                "masterarn": "{% $states.input.MasterArn %}",
+                "dbClusterIdentifier": "{% $states.input.DbClusterIdentifier %}"
+              }
+            },
+            "Resource": "arn:aws:states:::aws-sdk:secretsmanager:createSecret",
+            "Next": "rotate-secret",
+            "Output": {
+              "input": "{% $states.input %}",
+              "secret-result": "{% $states.result %}"
+            }
+          },
+          "rotate-secret": {
+            "Type": "Task",
+            "End": true,
+            "Arguments": {
+              "SecretId": "{% $states.input.SecretId %}",
+              "RotationLambdaARN": "{% $states.input.RotationLambdaARN %}",
+              "RotateImmediately": true
+            },
+            "Resource": "arn:aws:states:::aws-sdk:secretsmanager:rotateSecret",
+            "Output": {
+              "input": "{% $states.input %}",
+              "rotate-secret-result": "{% $states.result %}"
+            }
+          }
+        }
+      },
+      "Next": "POST-RESTORE-RENAME",
+      "ItemsPath": "{% $states.input.DatabaselUsersSecrets %}",
+      "ItemSelector": {
+        "SourceSecretId": "{% $$.Map.Item.Value.SourceSecretId %}",
+        "SecretId": "{% $$.Map.Item.Value.SecretId %}",
+        "Username": "{% $$.Map.Item.Value.Username %}",
+        "KmsKeyId": "{% $states.input.MasterUserSecretKmsKeyId %}",
+        "Engine": "{% $states.input.check-status-restore-result.DbCluster.Engine %}",
+        "Endpoint": "{% $states.input.check-status-restore-result.DbCluster.Endpoint %}",
+        "ReaderEndpoint": "{% $states.input.check-status-restore-result.DbCluster.ReaderEndpoint %}",
+        "Port": "{% $states.input.check-status-restore-result.DbCluster.Port %}",
+        "DatabaseName": "{% $states.input.DatabaseName %}",
+        "jdbcOptions": "{% $states.input.jdbcOptions %}",
+        "MasterArn": "{% $states.input.enable-master-user-secret-result.DbCluster.MasterUserSecret.SecretArn %}",
+        "DbClusterIdentifier": "{% $states.input.TmpDbClusterIdentifier %}",
+        "RotationLambdaARN": "{% $states.input.RotationLambdaARN %}"
+      },
+      "Output": {
+        "input": "{% $states.input %}",
+        "map-database-users-result": "{% $states.result %}"
+      }
+    },
+    "POST-RESTORE-RENAME": {
+      "Comment": "Restore steps",
+      "Type": "Pass",
+      "Next": "choice-rename-cluster",
+      "Arguments": "{% $states.input %}"
+    },
+    "choice-rename-cluster": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $states.input.RenameCluster = true %}",
+          "Next": "rename-cluster"
+        }
+      ],
+      "Default": "update-dynamodb"
+    },
+    "rename-cluster": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:modifyDBCluster",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "Arguments": {
+        "DbClusterIdentifier": "{% $states.input.TmpDbClusterIdentifier %}",
+        "NewDBClusterIdentifier": "{% $states.input.DbClusterIdentifier %}",
+        "ApplyImmediately": true
+      },
+      "Output": {
+        "input": "{% $states.input %}",
+        "rename-cluster-result": "{% $states.result %}"
+      },
+      "Next": "wait-rename-cluster",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "An error occurred (InvalidDBClusterStateFault) when calling the ModifyDBCluster operation: DB cluster is not available for modification with status backing-up"
+          ],
+          "IntervalSeconds": 60,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "Next": "update-dynamodb-failure",
+          "Assign": {
+            "renamecluster.errormsg": "{% $states.errorOutput %}"
+          }
+        }
+      ]
+    },
+    "wait-rename-cluster": {
+      "Type": "Wait",
+      "Seconds": 10,
+      "Next": "check-status-rename-cluster"
+    },
+    "check-status-rename-cluster": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:describeDBClusters",
+      "Next": "outcome-rename-cluster",
+      "Arguments": {
+        "DbClusterIdentifier": "{% $states.input.DbClusterIdentifier %}"
+      },
+      "Output": {
+        "input": "{% $states.input %}",
+        "check-status-rename-cluster-result": "{% $states.result %}"
+      },
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "Next": "wait-rename-cluster",
+          "Assign": {
+            "check-status-rename-cluster-errormsg": "{% $states.errorOutput %}"
+          }
+        }
+      ]
+    },
+    "outcome-rename-cluster": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $states.input.check-status-rename-cluster-result.DbClusters[0].Status = 'available' %}",
+          "Next": "rename-database"
+        }
+      ],
+      "Default": "wait-rename-cluster"
+    },
+    "rename-database": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:modifyDBInstance",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "Arguments": {
+        "DbInstanceIdentifier": "{% $states.input.TmpDbInstanceIdentifier %}",
+        "NewDBInstanceIdentifier": "{% $states.input.DbInstanceIdentifier %}",
+        "ApplyImmediately": true
+      },
+      "Output": {
+        "input": "{% $states.input %}",
+        "rename-result": "{% $states.result %}"
+      },
+      "Next": "wait-rename",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "Next": "update-dynamodb-failure",
+          "Assign": {
+            "rename.errormsg": "{% $states.errorOutput %}"
+          }
+        }
+      ]
+    },
+    "wait-rename": {
+      "Type": "Wait",
+      "Seconds": 10,
+      "Next": "check-status-rename"
+    },
+    "check-status-rename": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:rds:describeDBInstances",
+      "Next": "outcome-rename",
+      "Arguments": {
+        "DbInstanceIdentifier": "{% $states.input.DbInstanceIdentifier %}"
+      },
+      "Output": {
+        "input": "{% $states.input %}",
+        "check-status-rename-result": "{% $states.result %}"
+      },
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.TaskFailed"
+          ],
+          "Next": "wait-rename",
+          "Assign": {
+            "check-status-rename-errormsg": "{% $states.errorOutput %}"
+          }
+        }
+      ]
+    },
+    "outcome-rename": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $states.input.check-status-rename-result.DbInstances[0].DbInstanceStatus = 'available' %}",
+          "Next": "rotate-database-users-secrets-after-rename"
+        }
+      ],
+      "Default": "wait-rename"
+    },
+    "rotate-database-users-secrets-after-rename": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Condition": "{% $states.input.RotateDatabaseUsersSecrets = true %}",
+          "Next": "map-database-users-after-rename"
+        }
+      ],
+      "Default": "update-dynamodb"
+    },
+    "map-database-users-after-rename": {
+      "Type": "Map",
+      "ItemProcessor": {
+        "ProcessorConfig": {
+          "Mode": "INLINE"
+        },
+        "StartAt": "get-database-source-user-secret-value-after-rename",
+        "States": {
+          "get-database-source-user-secret-value-after-rename": {
+            "Type": "Task",
+            "Arguments": {
+              "SecretId": "{% $states.input.SourceSecretId %}"
+            },
+            "Resource": "arn:aws:states:::aws-sdk:secretsmanager:getSecretValue",
+            "Next": "format-secret-string-after-rename",
+            "Catch": [
+              {
+                "ErrorEquals": [
+                  "SecretsManager.ResourceNotFoundException"
+                ],
+                "Next": "get-database-user-secret-value-after-rename",
+                "Assign": {
+                  "get-database-source-user-secret-value-after-rename-result": "{% $states.errorOutput %}"
+                }
+              }
+            ],
+            "Output": {
+              "input": "{% $states.input %}",
+              "get-database-source-user-secret-value-after-rename-result": "{% $states.result %}"
+            }
+          },
+          "format-secret-string-after-rename": {
+            "Type": "Pass",
+            "Arguments": {
+              "input": "{% $states.input %}",
+              "format-secret-string-after-rename": {
+                "SecretString": "{% $parse($states.input.get-database-source-user-secret-value-after-rename-result.SecretString) %}"
+              }
+            },
+            "Next": "get-database-user-secret-value-after-rename"
+          },
+          "get-database-user-secret-value-after-rename": {
+            "Type": "Task",
+            "Arguments": {
+              "SecretId": "{% $states.input.SecretId %}"
+            },
+            "Resource": "arn:aws:states:::aws-sdk:secretsmanager:getSecretValue",
+            "Next": "update-secret-after-rename",
+            "Catch": [
+              {
+                "ErrorEquals": [
+                  "SecretsManager.ResourceNotFoundException"
+                ],
+                "Next": "create-secret-after-rename",
+                "Assign": {
+                  "get-database-user-secret-value-after-rename-result": "{% $states.errorOutput %}"
+                }
+              }
+            ],
+            "Output": {
+              "input": "{% $states.input %}",
+              "get-database-user-secret-value-after-rename-result": "{% $states.result %}"
+            }
+          },
+          "update-secret-after-rename": {
+            "Type": "Task",
+            "Arguments": {
+              "SecretId": "{% $states.input.SecretId %}",
+              "ClientRequestToken": "{% $uuid() %}",
+              "SecretString": {
+                "username": "{% $states.input.Username %}",
+                "password": "{% $states.input.format-secret-string-after-rename.SecretString.password %}",
+                "engine": "{% $states.input.Engine %}",
+                "host": "{% $states.input.Endpoint %}",
+                "host_ro": "{% $states.input.ReaderEndpoint %}",
+                "port": "{% $states.input.Port %}",
+                "dbname": "{% $states.input.DatabaseName %}",
+                "jdbcUrl": "{% 'jdbc:mysql://' & $states.input.Endpoint & '/' & $states.input.DatabaseName & '?' & $states.input.jdbcOptions %}",
+                "jdbcReadOnlyUrl": "{% 'jdbc:mysql://' & $states.input.ReaderEndpoint & '/' & $states.input.DatabaseName & '?' & $states.input.jdbcOptions %}",
+                "masterarn": "{% $states.input.MasterArn %}",
+                "dbClusterIdentifier": "{% $states.input.DbClusterIdentifier %}"
+              }
+            },
+            "Resource": "arn:aws:states:::aws-sdk:secretsmanager:putSecretValue",
+            "Next": "rotate-secret-after-rename",
+            "Output": {
+              "input": "{% $states.input %}",
+              "secret-result": "{% $states.result %}"
+            }
+          },
+          "create-secret-after-rename": {
+            "Type": "Task",
+            "Arguments": {
+              "Name": "{% $states.input.SecretId %}",
+              "ClientRequestToken": "{% $uuid() %}",
+              "KmsKeyId": "{% $states.input.KmsKeyId %}",
+              "SecretString": {
+                "username": "{% $states.input.Username %}",
+                "password": "{% $states.input.format-secret-string-after-rename.SecretString.password %}",
+                "engine": "{% $states.input.Engine %}",
+                "host": "{% $states.input.Endpoint %}",
+                "host_ro": "{% $states.input.ReaderEndpoint %}",
+                "port": "{% $states.input.Port %}",
+                "dbname": "{% $states.input.DatabaseName %}",
+                "jdbcUrl": "{% 'jdbc:mysql://' & $states.input.Endpoint & '/' & $states.input.DatabaseName & '?' & $states.input.jdbcOptions %}",
+                "jdbcReadOnlyUrl": "{% 'jdbc:mysql://' & $states.input.ReaderEndpoint & '/' & $states.input.DatabaseName & '?' & $states.input.jdbcOptions %}",
+                "masterarn": "{% $states.input.MasterArn %}",
+                "dbClusterIdentifier": "{% $states.input.DbClusterIdentifier %}"
+              }
+            },
+            "Resource": "arn:aws:states:::aws-sdk:secretsmanager:createSecret",
+            "Next": "rotate-secret-after-rename",
+            "Output": {
+              "input": "{% $states.input %}",
+              "secret-result": "{% $states.result %}"
+            }
+          },
+          "rotate-secret-after-rename": {
+            "Type": "Task",
+            "End": true,
+            "Arguments": {
+              "SecretId": "{% $states.input.SecretId %}",
+              "RotationLambdaARN": "{% $states.input.RotationLambdaARN %}",
+              "RotateImmediately": true
+            },
+            "Resource": "arn:aws:states:::aws-sdk:secretsmanager:rotateSecret",
+            "Output": {
+              "input": "{% $states.input %}",
+              "rotate-secret-result": "{% $states.result %}"
+            }
+          }
+        }
+      },
+      "Next": "update-dynamodb",
+      "ItemsPath": "{% $states.input.DatabaselUsersSecrets %}",
+      "ItemSelector": {
+        "SourceSecretId": "{% $$.Map.Item.Value.SourceSecretId %}",
+        "SecretId": "{% $$.Map.Item.Value.SecretId %}",
+        "Username": "{% $$.Map.Item.Value.Username %}",
+        "KmsKeyId": "{% $states.input.MasterUserSecretKmsKeyId %}",
+        "Engine": "{% $states.input.check-status-rename-cluster-result.DbClusters[0].Engine %}",
+        "Endpoint": "{% $states.input.check-status-rename-cluster-result.DbClusters[0].Endpoint %}",
+        "ReaderEndpoint": "{% $states.input.check-status-rename-cluster-result.DbClusters[0].ReaderEndpoint %}",
+        "Port": "{% $states.input.check-status-rename-cluster-result.DbClusters[0].Port %}",
+        "DatabaseName": "{% $states.input.DatabaseName %}",
+        "jdbcOptions": "{% $states.input.jdbcOptions %}",
+        "MasterArn": "{% $states.input.check-status-rename-cluster-result.DbClusters[0].MasterUserSecret.SecretArn %}",
+        "DbClusterIdentifier": "{% $states.input.DbClusterIdentifier %}",
+        "RotationLambdaARN": "{% $states.input.RotationLambdaARN %}"
+      },
+      "Output": {
+        "input": "{% $states.input %}",
+        "map-database-users-result": "{% $states.result %}"
+      }
+    },
+    "update-dynamodb": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:putItem",
+      "Arguments": {
+        "TableName": "{% $states.input.DynamoDBTableName %}",
+        "Item": {
+          "appname": {
+            "S": "{% $states.input.TagApplication %}"
+          },
+          "environment": {
+            "S": "{% $states.input.TagEnvironment %}"
+          },
+          "dbinstance": {
+            "S": "{% $states.input.DbClusterIdentifier %}"
+          },
+          "source": {
+            "S": "{% $states.input.SourceDBClusterIdentifier %}"
+          },
+          "restoretype": {
+            "S": "{% $states.input.RestoreType %}"
+          },
+          "snapshot": {
+            "S": "null"
+          },
+          "status": {
+            "S": "completed"
+          },
+          "restoredate": {
+            "S": "{% $states.context.Execution.StartTime %}"
+          },
+          "restoretime": {
+            "S": "{% $states.context.State.EnteredTime %}"
+          }
+        }
+      },
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "Output": {
+        "input": "{% $states.input %}",
+        "update-dynamodb-result": "{% $states.result %}"
+      },
+      "Next": "send-msg"
+    },
+    "send-msg": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Arguments": {
+        "TopicArn": "{% $states.input.SNSTopicArn %}",
+        "Subject": "{% $states.input.SNSSubject %}",
+        "Message": "{% $states.input.SNSMessage %}"
+      },
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "Output": {
+        "input": "{% $states.input %}",
+        "sendmsg-result": "{% $states.result %}"
+      },
+      "Next": "RESTORE-COMPLETE"
+    },
+    "RESTORE-COMPLETE": {
+      "Type": "Pass",
+      "End": true
+    },
+    "update-dynamodb-failure": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:putItem",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "Arguments": {
+        "TableName": "{% $states.input.DynamoDBTableName %}",
+        "Item": {
+          "appname": {
+            "S": "{% $states.input.TagApplication %}"
+          },
+          "environment": {
+            "S": "{% $states.input.TagEnvironment %}"
+          },
+          "dbinstance": {
+            "S": "{% $states.input.DbClusterIdentifier %}"
+          },
+          "source": {
+            "S": "{% $states.input.SourceDBClusterIdentifier %}"
+          },
+          "restoretype": {
+            "S": "{% $states.input.RestoreType %}"
+          },
+          "snapshot": {
+            "S": "null"
+          },
+          "status": {
+            "S": "failed"
+          },
+          "restoredate": {
+            "S": "{% $states.context.Execution.StartTime %}"
+          },
+          "restoretime": {
+            "S": "{% $states.context.State.EnteredTime %}"
+          }
+        }
+      },
+      "Output": {
+        "input": "{% $states.input %}",
+        "update-dynamodb-failure-result": "{% $states.result %}"
+      },
+      "Next": "send-msg-failure"
+    },
+    "send-msg-failure": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "TimeoutSeconds": 300,
+      "HeartbeatSeconds": 60,
+      "Arguments": {
+        "TopicArn": "{% $states.input.SNSTopicArn %}",
+        "Subject": "{% $states.input.SNSSubjectFailure %}",
+        "Message": "{% $states.input.SNSMessageFailure %}"
+      },
+      "Output": {
+        "input": "{% $states.input %}",
+        "sendmsg-result": "{% $states.result %}"
+      },
+      "Next": "RESTORE-FAILED"
+    },
+    "RESTORE-FAILED": {
+      "Type": "Fail",
+      "Error": "Restore failed",
+      "Cause": "One of the states failed. Please check the logs"
+    }
+  }
+}
